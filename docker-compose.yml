@@ -1,14 +1,39 @@
 services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: meudindin-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    volumes:
+      - meudindin_postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
   meudindin:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: meudindin
+    container_name: meudindin-app
+    depends_on:
+      postgres:
+        condition: service_healthy
     ports:
-      - "8080:8080"
+      - "127.0.0.1:${MEUDINDIN_PORT:-8080}:8080"
     environment:
       ASPNETCORE_ENVIRONMENT: Production
-      MEUDINDIN_DATA_DIR: /app/App_Data
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD};Pooling=true;Maximum Pool Size=20;Timeout=15;Command Timeout=30
+      MEUDINDIN_KEYS_DIR: /app/keys
     volumes:
-      - /srv/meudindin/App_Data:/app/App_Data
+      - meudindin_keys:/app/keys
     restart: unless-stopped
+
+volumes:
+  meudindin_postgres_data:
+  meudindin_keys:

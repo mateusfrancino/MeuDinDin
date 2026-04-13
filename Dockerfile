@@ -12,12 +12,12 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
 
 ENV ASPNETCORE_URLS=http://+:8080
-ENV MEUDINDIN_DATA_DIR=/app/App_Data
+ENV ASPNETCORE_ENVIRONMENT=Production
+ENV MEUDINDIN_KEYS_DIR=/app/keys
 
-RUN mkdir -p /app/App_Data
+RUN mkdir -p /app/keys
 
 EXPOSE 8080
-VOLUME ["/app/App_Data"]
 
 COPY --from=build /app/publish .
 

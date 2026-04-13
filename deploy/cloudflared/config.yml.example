@@ -1,0 +1,7 @@
+tunnel: SEU_TUNNEL_ID
+credentials-file: /etc/cloudflared/SEU_TUNNEL_ID.json
+
+ingress:
+  - hostname: meudindin.seudominio.com
+    service: http://localhost:8080
+  - service: http_status:404

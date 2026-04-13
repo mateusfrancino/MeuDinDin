@@ -48,10 +48,19 @@ public sealed record FinanceScope(FamilyViewMode ViewMode, Guid? MemberId);
 public sealed record FamilyGroup(
     Guid Id,
     string Name,
+    string AccessCode,
     decimal MonthlyExpenseGoal,
     decimal MonthlyInvestmentGoal,
     decimal CheckingBalance,
     decimal InvestedBalance);
+
+public sealed record AppUserProfile(
+    Guid Id,
+    string DisplayName,
+    string Email,
+    Guid? FamilyGroupId,
+    Guid? FamilyMemberId,
+    string Role);
 
 public sealed record FamilyMember(
     Guid Id,
@@ -728,13 +737,19 @@ public interface IFinanceHub
 {
     event Action? StateChanged;
 
+    bool IsAuthenticated { get; }
+
     bool HasFamilySetup { get; }
 
     FamilyViewMode ViewMode { get; }
 
     Guid SelectedMemberId { get; }
 
+    AppUserProfile? CurrentUser { get; }
+
     FamilyGroup Family { get; }
+
+    string FamilyAccessCode { get; }
 
     IReadOnlyList<FamilyMember> Members { get; }
 
@@ -745,6 +760,10 @@ public interface IFinanceHub
     IReadOnlyList<SurplusAllocation> Allocations { get; }
 
     FinanceScope CurrentScope { get; }
+
+    void SetActiveUser(Guid userId, string email, string displayName);
+
+    void ClearActiveUser();
 
     DateOnly GetPlanningReferenceDate(DateOnly referenceDate);
 

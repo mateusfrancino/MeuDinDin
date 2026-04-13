@@ -1,0 +1,71 @@
+@page "/entrar"
+@attribute [AllowAnonymous]
+@inject NavigationManager Navigation
+
+<PageTitle>Entrar</PageTitle>
+
+<section class="auth-shell auth-shell--compact">
+    <article class="panel auth-panel auth-panel--form">
+        <div class="panel__header">
+            <div>
+                <p class="eyebrow">Acesso</p>
+                <h1>Entre na sua familia.</h1>
+                <p class="section-text">Cada login enxerga apenas a familia vinculada a ele.</p>
+            </div>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(Error))
+        {
+            <div class="form-alert form-alert--danger">@Error</div>
+        }
+
+        <form method="post" action="/auth/login" class="form-grid auth-form">
+            <AntiforgeryToken />
+            <input type="hidden" name="returnUrl" value="@ReturnUrl" />
+
+            <label class="field field--full">
+                <span>E-mail</span>
+                <input type="email" name="email" autocomplete="email" required />
+            </label>
+
+            <label class="field field--full">
+                <span>Senha</span>
+                <input type="password" name="password" autocomplete="current-password" required />
+            </label>
+
+            <button type="submit" class="button button--primary">Entrar</button>
+        </form>
+
+        <p class="auth-panel__footer">
+            Ainda nao tem conta?
+            <a href="@CadastroHref">Criar acesso</a>
+        </p>
+    </article>
+</section>
+
+@code {
+    [SupplyParameterFromQuery(Name = "erro")]
+    public string? Error { get; set; }
+
+    [SupplyParameterFromQuery(Name = "returnUrl")]
+    public string? ReturnUrl { get; set; }
+
+    [CascadingParameter]
+    private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
+
+    private string CadastroHref => $"/cadastro?returnUrl={Uri.EscapeDataString(ReturnUrl ?? "/")}";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        var authState = await AuthenticationStateTask;
+        if (authState.User.Identity?.IsAuthenticated == true)
+        {
+            Navigation.NavigateTo(ReturnUrl ?? "/", forceLoad: true);
+        }
+    }
+}

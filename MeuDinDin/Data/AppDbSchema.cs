@@ -1,3 +1,4 @@
+using System.Data.Common;
 using Microsoft.EntityFrameworkCore;
 
 namespace MeuDinDin.Data;
@@ -6,6 +7,54 @@ public static class AppDbSchema
 {
     public static void EnsureLatest(AppDbContext dbContext)
     {
+        if (!string.Equals(dbContext.Database.ProviderName, "Microsoft.EntityFrameworkCore.Sqlite", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        EnsureColumnExists(dbContext, "family_groups", "AccessCode", "\"AccessCode\" TEXT NOT NULL DEFAULT ''");
+
+        dbContext.Database.ExecuteSqlRaw(
+            """
+            UPDATE "family_groups"
+            SET "AccessCode" = UPPER(SUBSTR(REPLACE("Id", '-', ''), 1, 8))
+            WHERE TRIM(COALESCE("AccessCode", '')) = '';
+            """);
+
+        dbContext.Database.ExecuteSqlRaw(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_family_groups_AccessCode"
+            ON "family_groups" ("AccessCode");
+            """);
+
+        dbContext.Database.ExecuteSqlRaw(
+            """
+            CREATE TABLE IF NOT EXISTS "app_users" (
+                "Id" TEXT NOT NULL CONSTRAINT "PK_app_users" PRIMARY KEY,
+                "Email" TEXT NOT NULL,
+                "NormalizedEmail" TEXT NOT NULL,
+                "DisplayName" TEXT NOT NULL,
+                "PasswordHash" TEXT NOT NULL,
+                "FamilyGroupId" TEXT NULL,
+                "FamilyMemberId" TEXT NULL,
+                "Role" TEXT NOT NULL DEFAULT 'Member',
+                "CreatedUtc" TEXT NOT NULL,
+                "LastLoginUtc" TEXT NULL
+            );
+            """);
+
+        dbContext.Database.ExecuteSqlRaw(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_app_users_NormalizedEmail"
+            ON "app_users" ("NormalizedEmail");
+            """);
+
+        dbContext.Database.ExecuteSqlRaw(
+            """
+            CREATE INDEX IF NOT EXISTS "IX_app_users_FamilyGroupId"
+            ON "app_users" ("FamilyGroupId");
+            """);
+
         dbContext.Database.ExecuteSqlRaw(
             """
             CREATE TABLE IF NOT EXISTS "financial_goals" (
@@ -103,5 +152,72 @@ public static class AppDbSchema
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_card_bill_payments_CardId_Month"
             ON "card_bill_payments" ("CardId", "Month");
             """);
+    }
+
+    private static void EnsureColumnExists(AppDbContext dbContext, string tableName, string columnName, string columnDefinition)
+    {
+        if (HasColumn(dbContext, tableName, columnName))
+        {
+            return;
+        }
+
+        ExecuteNonQuery(dbContext, $"""ALTER TABLE "{tableName}" ADD COLUMN {columnDefinition};""");
+    }
+
+    private static bool HasColumn(AppDbContext dbContext, string tableName, string columnName)
+    {
+        var connection = dbContext.Database.GetDbConnection();
+        var shouldClose = connection.State != System.Data.ConnectionState.Open;
+        if (shouldClose)
+        {
+            connection.Open();
+        }
+
+        try
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = $"PRAGMA table_info(\"{tableName}\");";
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                if (string.Equals(reader.GetString(1), columnName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+        finally
+        {
+            if (shouldClose)
+            {
+                connection.Close();
+            }
+        }
+    }
+
+    private static void ExecuteNonQuery(AppDbContext dbContext, string sql)
+    {
+        var connection = dbContext.Database.GetDbConnection();
+        var shouldClose = connection.State != System.Data.ConnectionState.Open;
+        if (shouldClose)
+        {
+            connection.Open();
+        }
+
+        try
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = sql;
+            command.ExecuteNonQuery();
+        }
+        finally
+        {
+            if (shouldClose)
+            {
+                connection.Close();
+            }
+        }
     }
 }

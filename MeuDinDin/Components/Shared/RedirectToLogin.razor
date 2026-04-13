@@ -1,0 +1,20 @@
+@inject NavigationManager Navigation
+
+@code {
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        var currentPath = "/" + Navigation.ToBaseRelativePath(Navigation.Uri);
+        if (string.IsNullOrWhiteSpace(currentPath) || currentPath == "/")
+        {
+            Navigation.NavigateTo("/entrar", forceLoad: true);
+            return;
+        }
+
+        Navigation.NavigateTo($"/entrar?returnUrl={Uri.EscapeDataString(currentPath)}", forceLoad: true);
+    }
+}

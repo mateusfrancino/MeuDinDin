@@ -6,6 +6,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 {
     public DbSet<FamilyGroupEntity> FamilyGroups => Set<FamilyGroupEntity>();
 
+    public DbSet<AppUserEntity> AppUsers => Set<AppUserEntity>();
+
     public DbSet<FamilyMemberEntity> FamilyMembers => Set<FamilyMemberEntity>();
 
     public DbSet<CategoryEntity> Categories => Set<CategoryEntity>();
@@ -39,6 +41,24 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             entity.ToTable("family_groups");
             entity.HasKey(item => item.Id);
             entity.Property(item => item.Name).HasMaxLength(160);
+            entity.Property(item => item.AccessCode).HasMaxLength(12);
+            entity.HasIndex(item => item.AccessCode).IsUnique();
+        });
+
+        modelBuilder.Entity<AppUserEntity>(entity =>
+        {
+            entity.ToTable("app_users");
+            entity.HasKey(item => item.Id);
+            entity.Property(item => item.Email).HasMaxLength(180);
+            entity.Property(item => item.NormalizedEmail).HasMaxLength(180);
+            entity.Property(item => item.DisplayName).HasMaxLength(120);
+            entity.Property(item => item.PasswordHash).HasMaxLength(1024);
+            entity.Property(item => item.Role).HasMaxLength(24);
+            entity.HasIndex(item => item.NormalizedEmail).IsUnique();
+            entity.HasOne(item => item.FamilyGroup)
+                .WithMany()
+                .HasForeignKey(item => item.FamilyGroupId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<FamilyMemberEntity>(entity =>

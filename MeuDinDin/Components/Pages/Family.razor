@@ -1,4 +1,5 @@
 @page "/familia"
+@attribute [Authorize]
 @implements IDisposable
 @inject IFinanceHub Hub
 
@@ -65,6 +66,16 @@ else
 
                 <button type="submit" class="button button--primary">Salvar configuracao</button>
             </EditForm>
+        </article>
+
+        <article class="panel">
+            <div class="panel__header">
+                <h2>Codigo da familia</h2>
+                <span class="pill">Compartilhavel</span>
+            </div>
+
+            <p class="section-text">Use este codigo para outra pessoa criar um login separado e entrar na mesma base.</p>
+            <div class="auth-code">@Hub.FamilyAccessCode</div>
         </article>
 
         <article class="panel">

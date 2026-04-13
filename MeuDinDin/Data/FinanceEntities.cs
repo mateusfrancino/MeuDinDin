@@ -8,6 +8,8 @@ public sealed class FamilyGroupEntity
 
     public string Name { get; set; } = string.Empty;
 
+    public string AccessCode { get; set; } = string.Empty;
+
     public long MonthlyExpenseGoalCents { get; set; }
 
     public long MonthlyInvestmentGoalCents { get; set; }
@@ -23,6 +25,31 @@ public sealed class FamilyGroupEntity
     public List<CategoryEntity> Categories { get; set; } = [];
 
     public List<FinancialGoalEntity> Goals { get; set; } = [];
+}
+
+public sealed class AppUserEntity
+{
+    public Guid Id { get; set; }
+
+    public string Email { get; set; } = string.Empty;
+
+    public string NormalizedEmail { get; set; } = string.Empty;
+
+    public string DisplayName { get; set; } = string.Empty;
+
+    public string PasswordHash { get; set; } = string.Empty;
+
+    public Guid? FamilyGroupId { get; set; }
+
+    public Guid? FamilyMemberId { get; set; }
+
+    public string Role { get; set; } = "Member";
+
+    public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
+
+    public DateTime? LastLoginUtc { get; set; }
+
+    public FamilyGroupEntity? FamilyGroup { get; set; }
 }
 
 public sealed class FamilyMemberEntity

@@ -5,6 +5,7 @@
 **/out
 artifacts
 MeuDinDin/App_Data
+.env
 *.user
 *.suo
 *.tmp

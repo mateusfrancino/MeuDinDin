@@ -6,7 +6,7 @@ namespace MeuDinDin.Services;
 
 public sealed partial class FinanceHub : IFinanceHub
 {
-    private static readonly FamilyGroup EmptyFamily = new(Guid.Empty, string.Empty, 0m, 0m, 0m, 0m);
+    private static readonly FamilyGroup EmptyFamily = new(Guid.Empty, string.Empty, string.Empty, 0m, 0m, 0m, 0m);
 
     private readonly IDbContextFactory<AppDbContext> dbContextFactory;
     private readonly CultureInfo culture = CultureInfo.GetCultureInfo("pt-BR");
@@ -20,14 +20,16 @@ public sealed partial class FinanceHub : IFinanceHub
     private List<PurchaseSimulation> simulations = [];
     private List<SurplusAllocation> allocations = [];
     private FamilyGroup family = EmptyFamily;
+    private AppUserProfile? currentUser;
 
     public FinanceHub(IDbContextFactory<AppDbContext> dbContextFactory)
     {
         this.dbContextFactory = dbContextFactory;
-        ReloadState();
     }
 
     public event Action? StateChanged;
+
+    public bool IsAuthenticated => currentUser is not null;
 
     public bool HasFamilySetup => family.Id != Guid.Empty && members.Count > 0;
 
@@ -35,7 +37,11 @@ public sealed partial class FinanceHub : IFinanceHub
 
     public Guid SelectedMemberId { get; private set; }
 
+    public AppUserProfile? CurrentUser => currentUser;
+
     public FamilyGroup Family => family;
+
+    public string FamilyAccessCode => family.AccessCode;
 
     public IReadOnlyList<FamilyMember> Members => members;
 
@@ -49,6 +55,30 @@ public sealed partial class FinanceHub : IFinanceHub
         ViewMode == FamilyViewMode.Family || SelectedMemberId == Guid.Empty
             ? new FinanceScope(FamilyViewMode.Family, null)
             : new FinanceScope(ViewMode, SelectedMemberId);
+
+    public void SetActiveUser(Guid userId, string email, string displayName)
+    {
+        if (currentUser?.Id == userId)
+        {
+            return;
+        }
+
+        currentUser = new AppUserProfile(userId, displayName, email, null, null, string.Empty);
+        ReloadState();
+        NotifyStateChanged();
+    }
+
+    public void ClearActiveUser()
+    {
+        if (currentUser is null && family.Id == Guid.Empty)
+        {
+            return;
+        }
+
+        currentUser = null;
+        ResetState();
+        NotifyStateChanged();
+    }
 
     public DateOnly GetPlanningReferenceDate(DateOnly referenceDate) =>
         ResolveReferenceDate(referenceDate);
@@ -72,7 +102,7 @@ public sealed partial class FinanceHub : IFinanceHub
 
     public void CompleteOnboarding(OnboardingInput input)
     {
-        if (HasFamilySetup)
+        if (HasFamilySetup || currentUser is null)
         {
             return;
         }
@@ -84,7 +114,8 @@ public sealed partial class FinanceHub : IFinanceHub
         var splitInvestmentGoal = input.MonthlyInvestmentGoal / 2m;
 
         using var db = dbContextFactory.CreateDbContext();
-        if (db.FamilyGroups.Any())
+        var userEntity = db.AppUsers.FirstOrDefault(item => item.Id == currentUser.Id);
+        if (userEntity is null || userEntity.FamilyGroupId is not null)
         {
             ReloadState();
             return;
@@ -126,7 +157,12 @@ public sealed partial class FinanceHub : IFinanceHub
             }
         ]);
 
-        db.Categories.AddRange(BuildDefaultCategories(familyId));
+        userEntity.DisplayName = input.PrimaryMemberName.Trim();
+        userEntity.FamilyGroupId = familyId;
+        userEntity.FamilyMemberId = primaryMemberId;
+        userEntity.Role = "Owner";
+
+        db.Categories.AddRange(FamilySeedData.BuildDefaultCategories(familyId));
         db.SaveChanges();
 
         ReloadState();
@@ -842,31 +878,37 @@ public sealed partial class FinanceHub : IFinanceHub
 
     private void ReloadState()
     {
+        if (currentUser is null)
+        {
+            ResetState();
+            return;
+        }
+
         using var db = dbContextFactory.CreateDbContext();
-        var familyEntity = db.FamilyGroups.AsNoTracking().FirstOrDefault();
+        var userEntity = db.AppUsers.AsNoTracking().FirstOrDefault(item => item.Id == currentUser.Id);
+        if (userEntity is null)
+        {
+            currentUser = null;
+            ResetState();
+            return;
+        }
+
+        currentUser = MapUser(userEntity);
+
+        if (userEntity.FamilyGroupId is not Guid familyId)
+        {
+            ResetState(keepUser: true);
+            return;
+        }
+
+        var familyEntity = db.FamilyGroups.AsNoTracking().FirstOrDefault(item => item.Id == familyId);
         if (familyEntity is null)
         {
-            family = EmptyFamily;
-            members = [];
-            categories = [];
-            incomes = [];
-            fixedExpenses = [];
-            variableExpenses = [];
-            cards = [];
-            purchases = [];
-            simulations = [];
-            allocations = [];
-            goals = [];
-            goalContributions = [];
-            fixedExpenseMonths = [];
-            cardBillPayments = [];
-            SelectedMemberId = Guid.Empty;
-            ViewMode = FamilyViewMode.Family;
+            ResetState(keepUser: true);
             return;
         }
 
         family = MapFamily(familyEntity);
-        var familyId = familyEntity.Id;
 
         members = db.FamilyMembers.AsNoTracking()
             .Where(item => item.FamilyGroupId == familyId)
@@ -949,9 +991,38 @@ public sealed partial class FinanceHub : IFinanceHub
             return;
         }
 
-        if (members.All(member => member.Id != SelectedMemberId))
+        if (currentUser.FamilyMemberId is Guid familyMemberId && members.Any(member => member.Id == familyMemberId))
+        {
+            SelectedMemberId = familyMemberId;
+        }
+        else if (members.All(member => member.Id != SelectedMemberId))
         {
             SelectedMemberId = members.First().Id;
+        }
+    }
+
+    private void ResetState(bool keepUser = false)
+    {
+        family = EmptyFamily;
+        members = [];
+        categories = [];
+        incomes = [];
+        fixedExpenses = [];
+        variableExpenses = [];
+        cards = [];
+        purchases = [];
+        simulations = [];
+        allocations = [];
+        goals = [];
+        goalContributions = [];
+        fixedExpenseMonths = [];
+        cardBillPayments = [];
+        SelectedMemberId = Guid.Empty;
+        ViewMode = FamilyViewMode.Family;
+
+        if (!keepUser)
+        {
+            currentUser = null;
         }
     }
 
@@ -1307,10 +1378,20 @@ public sealed partial class FinanceHub : IFinanceHub
         new(
             entity.Id,
             entity.Name,
+            entity.AccessCode,
             FromCents(entity.MonthlyExpenseGoalCents),
             FromCents(entity.MonthlyInvestmentGoalCents),
             FromCents(entity.CheckingBalanceCents),
             FromCents(entity.InvestedBalanceCents));
+
+    private static AppUserProfile MapUser(AppUserEntity entity) =>
+        new(
+            entity.Id,
+            entity.DisplayName,
+            entity.Email,
+            entity.FamilyGroupId,
+            entity.FamilyMemberId,
+            entity.Role);
 
     private static FamilyMember MapMember(FamilyMemberEntity entity) =>
         new(
@@ -1424,37 +1505,6 @@ public sealed partial class FinanceHub : IFinanceHub
         new(0m, 0m, false, date, []);
 
     private void NotifyStateChanged() => StateChanged?.Invoke();
-
-    private static IEnumerable<CategoryEntity> BuildDefaultCategories(Guid familyId) =>
-    [
-        CreateCategory(familyId, "Salario", CategoryKind.Revenue, "#1C78EB", true),
-        CreateCategory(familyId, "Freelance", CategoryKind.Revenue, "#0FB5A8", true),
-        CreateCategory(familyId, "Mercado", CategoryKind.Expense, "#4E8DF0", true),
-        CreateCategory(familyId, "Combustivel", CategoryKind.Expense, "#4FA2D8", true),
-        CreateCategory(familyId, "Energia", CategoryKind.Expense, "#0FB5A8", true),
-        CreateCategory(familyId, "Internet", CategoryKind.Expense, "#2577DB", true),
-        CreateCategory(familyId, "Financiamento", CategoryKind.Expense, "#17173B", true),
-        CreateCategory(familyId, "Faculdade", CategoryKind.Expense, "#5E87FF", true),
-        CreateCategory(familyId, "Cartao", CategoryKind.Expense, "#3E69C1", true),
-        CreateCategory(familyId, "Assinatura", CategoryKind.Expense, "#7A8CCB", true),
-        CreateCategory(familyId, "Viagem", CategoryKind.Expense, "#0FB5A8", true),
-        CreateCategory(familyId, "Farmacia", CategoryKind.Expense, "#6AA7F2", true),
-        CreateCategory(familyId, "Compras online", CategoryKind.Expense, "#2A92E8", true),
-        CreateCategory(familyId, "Investimento", CategoryKind.Expense, "#0D9E93", true),
-        CreateCategory(familyId, "Lazer", CategoryKind.Expense, "#4C7EF0", true),
-        CreateCategory(familyId, "Alimentacao", CategoryKind.Expense, "#377DE0", true)
-    ];
-
-    private static CategoryEntity CreateCategory(Guid familyId, string name, CategoryKind kind, string color, bool isSystem) =>
-        new()
-        {
-            Id = Guid.NewGuid(),
-            FamilyGroupId = familyId,
-            Name = name,
-            Kind = kind,
-            Color = color,
-            IsSystem = isSystem
-        };
 
     private sealed record ExpenseOccurrence(
         string Description,

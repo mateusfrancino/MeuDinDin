@@ -1,0 +1,137 @@
+@page "/cadastro"
+@attribute [AllowAnonymous]
+@inject NavigationManager Navigation
+
+<PageTitle>Criar Conta</PageTitle>
+
+<section class="auth-shell">
+    <article class="panel auth-panel auth-panel--form">
+        <div class="panel__header">
+            <div>
+                <p class="eyebrow">Cadastro</p>
+                <h1>Crie seu acesso.</h1>
+                <p class="section-text">Voce pode abrir uma nova familia ou entrar em uma existente com o codigo compartilhado.</p>
+            </div>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(Error))
+        {
+            <div class="form-alert form-alert--danger">@Error</div>
+        }
+
+        <div class="mode-toggle" role="tablist" aria-label="Modo de cadastro">
+            <button type="button" class="@(mode == "new" ? "mode-toggle__item is-active" : "mode-toggle__item")" @onclick='() => SetMode("new")'>Nova familia</button>
+            <button type="button" class="@(mode == "join" ? "mode-toggle__item is-active" : "mode-toggle__item")" @onclick='() => SetMode("join")'>Entrar em familia</button>
+        </div>
+
+        <form method="post" action="/auth/register" class="form-grid auth-form">
+            <AntiforgeryToken />
+            <input type="hidden" name="mode" value="@mode" />
+            <input type="hidden" name="returnUrl" value="@ReturnUrl" />
+
+            <label class="field field--full">
+                <span>Seu nome</span>
+                <input type="text" name="displayName" autocomplete="name" required />
+            </label>
+
+            <label class="field field--full">
+                <span>E-mail</span>
+                <input type="email" name="email" autocomplete="email" required />
+            </label>
+
+            <label class="field field--full">
+                <span>Senha</span>
+                <input type="password" name="password" autocomplete="new-password" minlength="6" required />
+            </label>
+
+            @if (mode == "new")
+            {
+                <label class="field field--full">
+                    <span>Nome da familia</span>
+                    <input type="text" name="familyName" required />
+                </label>
+            }
+            else
+            {
+                <label class="field field--full">
+                    <span>Codigo da familia</span>
+                    <input type="text" name="accessCode" maxlength="8" autocomplete="one-time-code" required />
+                </label>
+            }
+
+            <button type="submit" class="button button--primary">Criar conta</button>
+        </form>
+
+        <p class="auth-panel__footer">
+            Ja tem acesso?
+            <a href="@LoginHref">Entrar</a>
+        </p>
+    </article>
+
+    <article class="panel auth-panel auth-panel--info">
+        <div class="panel__header">
+            <h2>Fluxo recomendado</h2>
+            <span class="pill">Teste rapido</span>
+        </div>
+
+        <div class="list">
+            <div class="list__row">
+                <div>
+                    <strong>Responsavel principal</strong>
+                    <div class="muted">Cria a familia e recebe um codigo de acesso.</div>
+                </div>
+            </div>
+            <div class="list__row">
+                <div>
+                    <strong>Conjuge ou parceiro</strong>
+                    <div class="muted">Se cadastra usando o mesmo codigo e entra na mesma base.</div>
+                </div>
+            </div>
+            <div class="list__row">
+                <div>
+                    <strong>Outras familias</strong>
+                    <div class="muted">Criam seu proprio codigo e ficam isoladas.</div>
+                </div>
+            </div>
+        </div>
+    </article>
+</section>
+
+@code {
+    [SupplyParameterFromQuery(Name = "erro")]
+    public string? Error { get; set; }
+
+    [SupplyParameterFromQuery(Name = "modo")]
+    public string? ModeFromQuery { get; set; }
+
+    [SupplyParameterFromQuery(Name = "returnUrl")]
+    public string? ReturnUrl { get; set; }
+
+    [CascadingParameter]
+    private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
+
+    private string mode = "new";
+
+    private string LoginHref => $"/entrar?returnUrl={Uri.EscapeDataString(ReturnUrl ?? "/")}";
+
+    protected override void OnParametersSet()
+    {
+        mode = ModeFromQuery == "join" ? "join" : "new";
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        var authState = await AuthenticationStateTask;
+        if (authState.User.Identity?.IsAuthenticated == true)
+        {
+            Navigation.NavigateTo(ReturnUrl ?? "/", forceLoad: true);
+        }
+    }
+
+    private void SetMode(string targetMode) => mode = targetMode;
+}

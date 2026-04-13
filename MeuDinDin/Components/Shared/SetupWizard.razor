@@ -3,127 +3,74 @@
 <section class="hero">
     <div>
         <p class="eyebrow">Configuracao inicial</p>
-        <h1>Crie a base real da sua familia antes de registrar lancamentos.</h1>
-        <p class="hero__text">Nada aqui fica mockado. Esta etapa cria o grupo familiar, os dois usuarios iniciais, as metas, os saldos e as categorias padrao editaveis.</p>
+        <h1>Vincule seu login a uma familia.</h1>
+        <p class="hero__text">Crie uma nova base para sua casa ou use o codigo de uma familia existente para compartilhar os mesmos dados com outra pessoa.</p>
     </div>
     <div class="hero__summary">
-        <div class="hero__summary-label">Banco de dados</div>
-        <div class="hero__summary-value">SQLite local</div>
-        <div class="hero__summary-helper">Ideal para uso pessoal, simples de operar e facil de fazer backup.</div>
+        <div class="hero__summary-label">Conta logada</div>
+        <div class="hero__summary-value">@CurrentUserName</div>
+        <div class="hero__summary-helper">@CurrentUserEmail</div>
     </div>
 </section>
+
+@if (!string.IsNullOrWhiteSpace(Error))
+{
+    <div class="form-alert form-alert--danger">@Error</div>
+}
 
 <section class="content-grid">
     <article class="panel panel--wide">
         <div class="panel__header">
-            <h2>Onboarding da familia</h2>
-            <span class="pill">Primeira execucao</span>
+            <h2>Criar nova familia</h2>
+            <span class="pill">Novo codigo</span>
         </div>
 
-        <EditForm Model="form" OnValidSubmit="HandleSubmit" FormName="setup-wizard">
-            <DataAnnotationsValidator />
-            <ValidationSummary />
+        <form method="post" action="/auth/family/create" class="form-grid">
+            <AntiforgeryToken />
 
-            <div class="form-grid">
-                <label class="field field--full">
-                    <span>Nome da familia</span>
-                    <InputText @bind-Value="form.FamilyName" />
-                </label>
+            <label class="field field--full">
+                <span>Nome da familia</span>
+                <input type="text" name="familyName" required />
+            </label>
 
-                <label class="field">
-                    <span>Seu nome</span>
-                    <InputText @bind-Value="form.PrimaryMemberName" />
-                </label>
+            <label class="field field--full">
+                <span>Nome que aparecera nos lancamentos</span>
+                <input type="text" name="memberName" value="@CurrentUserName" required />
+            </label>
 
-                <label class="field">
-                    <span>Seu e-mail</span>
-                    <InputText @bind-Value="form.PrimaryMemberEmail" />
-                </label>
-
-                <label class="field">
-                    <span>Sua renda mensal</span>
-                    <MoneyInput @bind-Value="form.PrimaryMemberIncome" />
-                </label>
-
-                <label class="field">
-                    <span>Nome da sua esposa</span>
-                    <InputText @bind-Value="form.PartnerMemberName" />
-                </label>
-
-                <label class="field">
-                    <span>E-mail dela</span>
-                    <InputText @bind-Value="form.PartnerMemberEmail" />
-                </label>
-
-                <label class="field">
-                    <span>Renda mensal dela</span>
-                    <MoneyInput @bind-Value="form.PartnerMemberIncome" />
-                </label>
-
-                <label class="field">
-                    <span>Meta mensal de despesas</span>
-                    <MoneyInput @bind-Value="form.MonthlyExpenseGoal" />
-                </label>
-
-                <label class="field">
-                    <span>Meta mensal de investimento</span>
-                    <MoneyInput @bind-Value="form.MonthlyInvestmentGoal" />
-                </label>
-
-                <label class="field">
-                    <span>Saldo atual em conta</span>
-                    <MoneyInput @bind-Value="form.CheckingBalance" />
-                </label>
-
-                <label class="field">
-                    <span>Saldo investido atual</span>
-                    <MoneyInput @bind-Value="form.InvestedBalance" />
-                </label>
-            </div>
-
-            <button type="submit" class="button button--primary">Criar base da familia</button>
-        </EditForm>
+            <button type="submit" class="button button--primary">Criar familia</button>
+        </form>
     </article>
 
     <article class="panel">
         <div class="panel__header">
-            <h2>O que sera criado</h2>
-            <span class="pill">Automatico</span>
+            <h2>Entrar em familia existente</h2>
+            <span class="pill">Mesmo banco</span>
         </div>
 
-        <div class="list">
-            <div class="list__row">
-                <div>
-                    <strong>Grupo familiar</strong>
-                    <div class="muted">Uma familia com voce e sua esposa.</div>
-                </div>
-            </div>
-            <div class="list__row">
-                <div>
-                    <strong>Categorias padrao</strong>
-                    <div class="muted">Receitas e despesas iniciais, depois editaveis.</div>
-                </div>
-            </div>
-            <div class="list__row">
-                <div>
-                    <strong>Base pronta para lancamentos</strong>
-                    <div class="muted">Nada de despesas, compras ou receitas ficticias.</div>
-                </div>
-            </div>
-        </div>
+        <form method="post" action="/auth/family/join" class="form-grid">
+            <AntiforgeryToken />
+
+            <label class="field field--full">
+                <span>Codigo da familia</span>
+                <input type="text" name="accessCode" maxlength="8" autocomplete="one-time-code" required />
+            </label>
+
+            <label class="field field--full">
+                <span>Nome que aparecera nos lancamentos</span>
+                <input type="text" name="memberName" value="@CurrentUserName" required />
+            </label>
+
+            <button type="submit" class="button button--ghost">Entrar com codigo</button>
+        </form>
     </article>
 </section>
 
 @code {
-    private OnboardingInput form = new()
-    {
-        FamilyName = "Minha familia",
-        MonthlyExpenseGoal = 5000m,
-        MonthlyInvestmentGoal = 1000m
-    };
+    [SupplyParameterFromQuery(Name = "erro")]
+    public string? Error { get; set; }
 
-    private void HandleSubmit()
-    {
-        Hub.CompleteOnboarding(form);
-    }
+    private string CurrentUserName => Hub.CurrentUser?.DisplayName ?? "Usuario";
+
+    private string CurrentUserEmail => Hub.CurrentUser?.Email ?? string.Empty;
 }
