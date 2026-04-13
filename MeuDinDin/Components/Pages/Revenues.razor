@@ -1,0 +1,194 @@
+@page "/receitas"
+@implements IDisposable
+@inject IFinanceHub Hub
+
+<PageTitle>Receitas</PageTitle>
+
+@if (!Hub.HasFamilySetup)
+{
+    <SetupRequired />
+}
+else
+{
+    <section class="page-header">
+        <div>
+            <p class="eyebrow">Receitas</p>
+            <h1>Entradas recorrentes e avulsas.</h1>
+            <p class="section-text">Cada lancamento fica ligado a um responsavel e entra automaticamente na projecao quando pertence ao contexto ativo.</p>
+        </div>
+    </section>
+
+    <section class="content-grid">
+        <article class="panel">
+            <div class="panel__header">
+                <h2>Nova receita</h2>
+                <span class="pill">SQLite</span>
+            </div>
+
+            <EditForm Model="form" OnValidSubmit="HandleSubmit" FormName="income-create">
+                <DataAnnotationsValidator />
+                <ValidationSummary />
+
+                <div class="form-grid">
+                    <label class="field">
+                        <span>Descricao</span>
+                        <InputText @bind-Value="form.Description" />
+                    </label>
+
+                    <label class="field">
+                        <span>Valor</span>
+                        <MoneyInput @bind-Value="form.Amount" />
+                    </label>
+
+                    <label class="field">
+                        <span>Data</span>
+                        <InputDate @bind-Value="form.Date" />
+                    </label>
+
+                    <label class="field">
+                        <span>Responsavel</span>
+                        <InputSelect @bind-Value="form.ResponsibleId">
+                            @foreach (var member in Hub.Members)
+                            {
+                                <option value="@member.Id">@member.Name</option>
+                            }
+                        </InputSelect>
+                    </label>
+
+                    <label class="field">
+                        <span>Categoria</span>
+                        <InputSelect @bind-Value="form.CategoryId">
+                            @foreach (var category in revenueCategories)
+                            {
+                                <option value="@category.Id">@category.Name</option>
+                            }
+                        </InputSelect>
+                    </label>
+
+                    <label class="field">
+                        <span>Recorrencia</span>
+                        <InputSelect @bind-Value="form.Recurrence">
+                            <option value="@RecurrenceType.Monthly">Mensal</option>
+                            <option value="@RecurrenceType.None">Avulsa</option>
+                        </InputSelect>
+                    </label>
+                </div>
+
+                <label class="checkbox">
+                    <InputCheckbox @bind-Value="form.IsExtra" />
+                    <span>Marcar como receita extra</span>
+                </label>
+
+                <button type="submit" class="button button--primary">Adicionar receita</button>
+            </EditForm>
+        </article>
+
+        <article class="panel panel--wide">
+            <div class="panel__header">
+                <h2>Receitas do contexto atual</h2>
+                <span class="pill">@items.Count item(ns)</span>
+            </div>
+
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Descricao</th>
+                            <th>Responsavel</th>
+                            <th>Categoria</th>
+                            <th>Data</th>
+                            <th>Recorrencia</th>
+                            <th>Valor</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in items)
+                        {
+                            <tr>
+                                <td>
+                                    <strong>@item.Entry.Description</strong>
+                                    <div class="muted">@(item.Entry.IsExtra ? "Receita extra" : "Receita base")</div>
+                                </td>
+                                <td>@item.Responsible.Name</td>
+                                <td>@item.Category.Name</td>
+                                <td>@item.Entry.Date.ToString("dd/MM/yyyy")</td>
+                                <td>@(item.Entry.Recurrence == RecurrenceType.Monthly ? "Mensal" : "Avulsa")</td>
+                                <td>@Currency(item.Entry.Amount)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </article>
+    </section>
+}
+
+@code {
+    private readonly CultureInfo culture = CultureInfo.GetCultureInfo("pt-BR");
+    private IReadOnlyList<ScopedIncomeItem> items = [];
+    private IReadOnlyList<Category> revenueCategories = [];
+    private IncomeEntryInput form = new();
+
+    protected override void OnInitialized()
+    {
+        Hub.StateChanged += HandleStateChanged;
+        LoadData();
+    }
+
+    private void LoadData()
+    {
+        if (!Hub.HasFamilySetup)
+        {
+            revenueCategories = [];
+            items = [];
+            form = new IncomeEntryInput();
+            return;
+        }
+
+        revenueCategories = Hub.Categories.Where(item => item.Kind == CategoryKind.Revenue).ToList();
+        items = Hub.GetIncomeEntries();
+
+        if (form.ResponsibleId == Guid.Empty || form.CategoryId == Guid.Empty)
+        {
+            ResetForm();
+        }
+    }
+
+    private void HandleSubmit()
+    {
+        Hub.AddIncome(form);
+        ResetForm();
+        LoadData();
+    }
+
+    private void ResetForm()
+    {
+        if (revenueCategories.Count == 0)
+        {
+            form = new IncomeEntryInput();
+            return;
+        }
+
+        var referenceDate = Hub.GetPlanningReferenceDate(DateOnly.FromDateTime(DateTime.Today));
+        form = new IncomeEntryInput
+        {
+            ResponsibleId = Hub.SelectedMemberId,
+            CategoryId = revenueCategories.First().Id,
+            Recurrence = RecurrenceType.Monthly,
+            Date = referenceDate
+        };
+    }
+
+    private string Currency(decimal value) => value.ToString("C2", culture);
+
+    private void HandleStateChanged()
+    {
+        LoadData();
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        Hub.StateChanged -= HandleStateChanged;
+    }
+}

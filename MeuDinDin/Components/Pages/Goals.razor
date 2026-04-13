@@ -1,0 +1,455 @@
+@page "/objetivos"
+@implements IDisposable
+@inject IFinanceHub Hub
+
+<PageTitle>Objetivos</PageTitle>
+
+@if (!Hub.HasFamilySetup)
+{
+    <SetupRequired />
+}
+else
+{
+    <section class="page-header">
+        <div>
+            <p class="eyebrow">Objetivos</p>
+            <h1>Metas de curto prazo com progresso real.</h1>
+            <p class="section-text">Crie uma caixinha para cada objetivo, acompanhe o quanto ja foi guardado e veja quanto falta aportar para chegar la.</p>
+        </div>
+    </section>
+
+    <section class="metrics-grid">
+        <MetricCard Label="Objetivos ativos" Value="@goalSummaries.Count(item => !item.IsCompleted).ToString(culture)" Helper="Metas ainda em andamento" Tone="neutral" />
+        <MetricCard Label="Ja guardado" Value="@Currency(goalSummaries.Sum(item => item.SavedAmount))" Helper="Total acumulado nos objetivos" Tone="positive" />
+        <MetricCard Label="Ainda falta" Value="@Currency(goalSummaries.Sum(item => item.RemainingAmount))" Helper="Saldo necessario para concluir" Tone="warning" />
+        <MetricCard Label="Aporte sugerido" Value="@Currency(goalSummaries.Sum(item => item.SuggestedMonthlyContribution))" Helper="Media mensal para bater as metas" Tone="neutral" />
+    </section>
+
+    <section class="content-grid">
+        <article class="panel">
+            <div class="panel__header">
+                <h2>Novo objetivo</h2>
+                <span class="pill">Planejamento</span>
+            </div>
+
+            <EditForm Model="goalForm" OnValidSubmit="HandleGoalSubmit" FormName="goal-create">
+                <DataAnnotationsValidator />
+                <ValidationSummary />
+
+                <div class="form-grid">
+                    <label class="field field--full">
+                        <span>Nome do objetivo</span>
+                        <InputText @bind-Value="goalForm.Name" />
+                    </label>
+
+                    <label class="field">
+                        <span>Valor da meta</span>
+                        <MoneyInput @bind-Value="goalForm.TargetAmount" />
+                    </label>
+
+                    <label class="field">
+                        <span>Data alvo opcional</span>
+                        <InputDate @bind-Value="goalForm.TargetDate" />
+                    </label>
+
+                    <label class="field">
+                        <span>Responsavel</span>
+                        <InputSelect @bind-Value="goalForm.ResponsibleId">
+                            @foreach (var member in Hub.Members)
+                            {
+                                <option value="@member.Id">@member.Name</option>
+                            }
+                        </InputSelect>
+                    </label>
+
+                    <label class="field field--full">
+                        <span>Observacao</span>
+                        <InputText @bind-Value="goalForm.Notes" />
+                    </label>
+                </div>
+
+                <button type="submit" class="button button--primary">Criar objetivo</button>
+            </EditForm>
+        </article>
+
+        <article class="panel panel--wide">
+            <div class="panel__header">
+                <h2>Novo aporte</h2>
+                <span class="pill">Progresso</span>
+            </div>
+
+            @if (goalSummaries.Count == 0)
+            {
+                <p class="empty">Crie um objetivo primeiro para comecar a registrar aportes.</p>
+            }
+            else
+            {
+                <EditForm Model="contributionForm" OnValidSubmit="HandleContributionSubmit" FormName="goal-contribution-create">
+                    <DataAnnotationsValidator />
+                    <ValidationSummary />
+
+                    <div class="form-grid">
+                        <label class="field">
+                            <span>Objetivo</span>
+                            <InputSelect @bind-Value="contributionForm.GoalId">
+                                @foreach (var goal in goalSummaries)
+                                {
+                                    <option value="@goal.GoalId">@goal.Name</option>
+                                }
+                            </InputSelect>
+                        </label>
+
+                        <label class="field">
+                            <span>Valor do aporte</span>
+                            <MoneyInput @bind-Value="contributionForm.Amount" />
+                        </label>
+
+                        <label class="field">
+                            <span>Data</span>
+                            <InputDate @bind-Value="contributionForm.Date" />
+                        </label>
+
+                        <label class="field">
+                            <span>Responsavel</span>
+                            <InputSelect @bind-Value="contributionForm.ResponsibleId">
+                                @foreach (var member in Hub.Members)
+                                {
+                                    <option value="@member.Id">@member.Name</option>
+                                }
+                            </InputSelect>
+                        </label>
+
+                        <label class="field field--full">
+                            <span>Observacao</span>
+                            <InputText @bind-Value="contributionForm.Notes" />
+                        </label>
+                    </div>
+
+                    <button type="submit" class="button button--primary">Registrar aporte</button>
+                </EditForm>
+            }
+        </article>
+    </section>
+
+    <section class="goal-grid">
+        @if (goalSummaries.Count == 0)
+        {
+            <article class="panel goal-card">
+                <div class="panel__header">
+                    <h2>Sem objetivos ainda</h2>
+                    <span class="pill">Vazio</span>
+                </div>
+
+                <p class="section-text">Exemplos bons para usar aqui: viagem, emergencia pequena, curso, reforma, presente grande ou qualquer plano de curto prazo.</p>
+            </article>
+        }
+        else
+        {
+            @foreach (var goal in goalSummaries)
+            {
+                <article class="panel goal-card">
+                    @if (editingGoalId == goal.GoalId)
+                    {
+                        <div class="panel__header">
+                            <div>
+                                <h2>Editar objetivo</h2>
+                                <div class="muted">Atualize a meta sem perder o historico de aportes.</div>
+                            </div>
+                            <span class="pill">Edicao</span>
+                        </div>
+
+                        <EditForm Model="editGoalForm" OnValidSubmit="HandleGoalUpdate" FormName="@($"goal-edit-{goal.GoalId}")">
+                            <DataAnnotationsValidator />
+                            <ValidationSummary />
+
+                            <div class="form-grid">
+                                <label class="field field--full">
+                                    <span>Nome do objetivo</span>
+                                    <InputText @bind-Value="editGoalForm.Name" />
+                                </label>
+
+                                <label class="field">
+                                    <span>Valor da meta</span>
+                                    <MoneyInput @bind-Value="editGoalForm.TargetAmount" />
+                                </label>
+
+                                <label class="field">
+                                    <span>Data alvo opcional</span>
+                                    <InputDate @bind-Value="editGoalForm.TargetDate" />
+                                </label>
+
+                                <label class="field">
+                                    <span>Responsavel</span>
+                                    <InputSelect @bind-Value="editGoalForm.ResponsibleId">
+                                        @foreach (var member in Hub.Members)
+                                        {
+                                            <option value="@member.Id">@member.Name</option>
+                                        }
+                                    </InputSelect>
+                                </label>
+
+                                <label class="field field--full">
+                                    <span>Observacao</span>
+                                    <InputText @bind-Value="editGoalForm.Notes" />
+                                </label>
+                            </div>
+
+                            <div class="button-row">
+                                <button type="submit" class="button button--primary">Salvar alteracoes</button>
+                                <button type="button" class="button button--ghost" @onclick="CancelGoalEdit">Cancelar</button>
+                            </div>
+                        </EditForm>
+                    }
+                    else
+                    {
+                        <div class="panel__header">
+                            <div>
+                                <h2>@goal.Name</h2>
+                                <div class="muted">@goal.ResponsibleName</div>
+                            </div>
+                            <span class="pill">@(goal.IsCompleted ? "Concluido" : goal.TargetDate?.ToString("MM/yyyy") ?? "Sem prazo")</span>
+                        </div>
+
+                        @if (!string.IsNullOrWhiteSpace(goal.Notes))
+                        {
+                            <p class="section-text">@goal.Notes</p>
+                        }
+
+                        <div class="progress">
+                            <div class="progress__fill" style="@($"width:{Math.Min(goal.ProgressRatio * 100m, 100m).ToString(System.Globalization.CultureInfo.InvariantCulture)}%")"></div>
+                        </div>
+
+                        <div class="progress-meta">
+                            <strong>@Percent(goal.ProgressRatio)</strong>
+                            <span>@Currency(goal.SavedAmount) de @Currency(goal.TargetAmount)</span>
+                        </div>
+
+                        <div class="summary-stat-grid">
+                            <div class="summary-stat">
+                                <span>Guardado</span>
+                                <strong>@Currency(goal.SavedAmount)</strong>
+                            </div>
+                            <div class="summary-stat">
+                                <span>Falta</span>
+                                <strong>@Currency(goal.RemainingAmount)</strong>
+                            </div>
+                            <div class="summary-stat">
+                                <span>Prazo restante</span>
+                                <strong>@(goal.RemainingMonths == 0 ? "Livre" : $"{goal.RemainingMonths} mes(es)")</strong>
+                            </div>
+                            <div class="summary-stat">
+                                <span>Aporte sugerido</span>
+                                <strong>@(goal.SuggestedMonthlyContribution == 0m ? "-" : Currency(goal.SuggestedMonthlyContribution))</strong>
+                            </div>
+                        </div>
+
+                        <div class="button-row">
+                            <button type="button" class="button button--ghost" @onclick="@(() => StartEditing(goal))">Editar objetivo</button>
+                            <button type="button" class="button button--danger" @onclick="@(() => RequestGoalDelete(goal.GoalId))">Excluir objetivo</button>
+                        </div>
+
+                        @if (pendingDeleteGoalId == goal.GoalId)
+                        {
+                            <div class="alert-item alert-item--danger">
+                                <strong>Excluir objetivo e aportes vinculados?</strong>
+                                <span>Essa acao remove a meta e todo o historico de aportes registrado nela.</span>
+                                <div class="button-row">
+                                    <button type="button" class="button button--danger" @onclick="@(() => HandleGoalDelete(goal.GoalId))">Confirmar exclusao</button>
+                                    <button type="button" class="button button--ghost" @onclick="CancelGoalDelete">Cancelar</button>
+                                </div>
+                            </div>
+                        }
+
+                        <div class="goal-card__footer">
+                            <strong>Aportes recentes</strong>
+                        </div>
+
+                        @if (goal.RecentContributions.Count == 0)
+                        {
+                            <p class="empty">Ainda nao houve aporte nesse objetivo.</p>
+                        }
+                        else
+                        {
+                            <div class="list">
+                                @foreach (var contribution in goal.RecentContributions)
+                                {
+                                    <div class="list__row">
+                                        <div>
+                                            <strong>@Currency(contribution.Amount)</strong>
+                                            <div class="muted">@contribution.ResponsibleName</div>
+                                        </div>
+                                        <div class="text-right">
+                                            <strong>@contribution.Date.ToString("dd/MM/yyyy")</strong>
+                                            <div class="muted">@contribution.Notes</div>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    }
+                </article>
+            }
+        }
+    </section>
+}
+
+@code {
+    private readonly CultureInfo culture = CultureInfo.GetCultureInfo("pt-BR");
+    private IReadOnlyList<GoalProgressSummary> goalSummaries = [];
+    private GoalInput goalForm = new();
+    private GoalEditInput editGoalForm = new();
+    private GoalContributionInput contributionForm = new();
+    private DateOnly referenceDate;
+    private Guid editingGoalId;
+    private Guid pendingDeleteGoalId;
+
+    protected override void OnInitialized()
+    {
+        Hub.StateChanged += HandleStateChanged;
+        LoadData();
+    }
+
+    private void LoadData()
+    {
+        if (!Hub.HasFamilySetup)
+        {
+            goalSummaries = [];
+            goalForm = new GoalInput();
+            contributionForm = new GoalContributionInput();
+            return;
+        }
+
+        referenceDate = Hub.GetPlanningReferenceDate(DateOnly.FromDateTime(DateTime.Today));
+        goalSummaries = Hub.GetGoalProgress(referenceDate);
+
+        if (editingGoalId != Guid.Empty && goalSummaries.All(item => item.GoalId != editingGoalId))
+        {
+            editingGoalId = Guid.Empty;
+            editGoalForm = new GoalEditInput();
+            pendingDeleteGoalId = Guid.Empty;
+        }
+
+        if (goalForm.ResponsibleId == Guid.Empty)
+        {
+            ResetGoalForm();
+        }
+
+        if (goalSummaries.Count == 0)
+        {
+            contributionForm = new GoalContributionInput();
+            return;
+        }
+
+        if (contributionForm.GoalId == Guid.Empty || goalSummaries.All(item => item.GoalId != contributionForm.GoalId))
+        {
+            ResetContributionForm();
+        }
+    }
+
+    private void HandleGoalSubmit()
+    {
+        Hub.AddGoal(goalForm);
+        ResetGoalForm();
+        LoadData();
+    }
+
+    private void StartEditing(GoalProgressSummary goal)
+    {
+        editingGoalId = goal.GoalId;
+        pendingDeleteGoalId = Guid.Empty;
+        editGoalForm = new GoalEditInput
+        {
+            Id = goal.GoalId,
+            Name = goal.Name,
+            TargetAmount = goal.TargetAmount,
+            TargetDate = goal.TargetDate,
+            ResponsibleId = goal.ResponsibleId,
+            Notes = goal.Notes
+        };
+    }
+
+    private void HandleGoalUpdate()
+    {
+        Hub.UpdateGoal(editGoalForm);
+        editingGoalId = Guid.Empty;
+        editGoalForm = new GoalEditInput();
+        LoadData();
+    }
+
+    private void CancelGoalEdit()
+    {
+        editingGoalId = Guid.Empty;
+        editGoalForm = new GoalEditInput();
+    }
+
+    private void RequestGoalDelete(Guid goalId)
+    {
+        pendingDeleteGoalId = goalId;
+    }
+
+    private void CancelGoalDelete()
+    {
+        pendingDeleteGoalId = Guid.Empty;
+    }
+
+    private void HandleGoalDelete(Guid goalId)
+    {
+        Hub.RemoveGoal(goalId);
+
+        if (editingGoalId == goalId)
+        {
+            editingGoalId = Guid.Empty;
+            editGoalForm = new GoalEditInput();
+        }
+
+        pendingDeleteGoalId = Guid.Empty;
+        LoadData();
+    }
+
+    private void HandleContributionSubmit()
+    {
+        Hub.AddGoalContribution(contributionForm);
+        ResetContributionForm();
+        LoadData();
+    }
+
+    private void ResetGoalForm()
+    {
+        goalForm = new GoalInput
+        {
+            ResponsibleId = Hub.SelectedMemberId,
+            TargetDate = referenceDate.AddMonths(6)
+        };
+    }
+
+    private void ResetContributionForm()
+    {
+        if (goalSummaries.Count == 0)
+        {
+            contributionForm = new GoalContributionInput();
+            return;
+        }
+
+        contributionForm = new GoalContributionInput
+        {
+            GoalId = goalSummaries.First().GoalId,
+            ResponsibleId = Hub.SelectedMemberId,
+            Date = referenceDate
+        };
+    }
+
+    private string Currency(decimal value) => value.ToString("C2", culture);
+
+    private string Percent(decimal value) => value.ToString("P0", culture);
+
+    private void HandleStateChanged()
+    {
+        LoadData();
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        Hub.StateChanged -= HandleStateChanged;
+    }
+}

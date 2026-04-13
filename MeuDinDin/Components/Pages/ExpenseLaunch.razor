@@ -1,0 +1,369 @@
+@page "/lancamentos/despesas"
+@using System.ComponentModel.DataAnnotations
+@implements IDisposable
+@inject IFinanceHub Hub
+
+<PageTitle>Lancar despesa</PageTitle>
+
+@if (!Hub.HasFamilySetup)
+{
+    <SetupRequired />
+}
+else
+{
+    <section class="page-header">
+        <div>
+            <p class="eyebrow">Lancamento de despesa</p>
+            <h1>Uma unica tela para registrar qualquer gasto.</h1>
+            <p class="section-text">Escolha se a despesa sera paga no cartao de credito, no Pix ou em dinheiro. Pix e dinheiro entram direto no saldo do mes; cartao continua projetando as parcelas futuras.</p>
+        </div>
+    </section>
+
+    <section class="content-grid">
+        <article class="panel">
+            <div class="panel__header">
+                <h2>Nova despesa</h2>
+                <span class="pill">@PaymentMethodLabel(form.PaymentMethod)</span>
+            </div>
+
+            <EditForm Model="form" OnValidSubmit="HandleSubmit" FormName="expense-launch">
+                <DataAnnotationsValidator />
+                <ValidationSummary />
+
+                <div class="form-grid">
+                    <label class="field">
+                        <span>Descricao</span>
+                        <InputText @bind-Value="form.Description" />
+                    </label>
+
+                    <label class="field">
+                        <span>Valor</span>
+                        <MoneyInput @bind-Value="form.Amount" />
+                    </label>
+
+                    <label class="field">
+                        <span>Data</span>
+                        <InputDate @bind-Value="form.Date" />
+                    </label>
+
+                    <label class="field">
+                        <span>Responsavel</span>
+                        <InputSelect @bind-Value="form.ResponsibleId">
+                            @foreach (var member in Hub.Members)
+                            {
+                                <option value="@member.Id">@member.Name</option>
+                            }
+                        </InputSelect>
+                    </label>
+
+                    <label class="field">
+                        <span>Categoria</span>
+                        <InputSelect @bind-Value="form.CategoryId">
+                            @foreach (var category in expenseCategories)
+                            {
+                                <option value="@category.Id">@category.Name</option>
+                            }
+                        </InputSelect>
+                    </label>
+
+                    <label class="field">
+                        <span>Forma de pagamento</span>
+                        <InputSelect @bind-Value="form.PaymentMethod">
+                            <option value="@ExpensePaymentMethod.CreditCard">Cartao de credito</option>
+                            <option value="@ExpensePaymentMethod.Pix">Pix</option>
+                            <option value="@ExpensePaymentMethod.Cash">Dinheiro</option>
+                        </InputSelect>
+                    </label>
+
+                    @if (form.PaymentMethod == ExpensePaymentMethod.CreditCard)
+                    {
+                        <label class="field">
+                            <span>Cartao</span>
+                            <InputSelect @bind-Value="form.CardId">
+                                @foreach (var card in Hub.Cards)
+                                {
+                                    <option value="@card.Id">@card.Name</option>
+                                }
+                            </InputSelect>
+                        </label>
+
+                        <label class="field">
+                            <span>Parcelas</span>
+                            <InputNumber @bind-Value="form.Installments" />
+                        </label>
+
+                        <label class="field">
+                            <span>Primeiro vencimento</span>
+                            <InputDate @bind-Value="form.FirstDueDate" />
+                        </label>
+                    }
+
+                    <label class="field field--full">
+                        <span>Observacao</span>
+                        <InputText @bind-Value="form.Notes" />
+                    </label>
+                </div>
+
+                @if (form.PaymentMethod == ExpensePaymentMethod.CreditCard)
+                {
+                    @if (Hub.Cards.Count == 0)
+                    {
+                        <p class="empty">Cadastre um cartao antes de registrar uma compra no credito.</p>
+                    }
+                    else
+                    {
+                        <div class="button-row">
+                            <button type="button" class="button button--ghost" @onclick="ApplySuggestedDueDate">Sugerir primeiro vencimento</button>
+                            <button type="submit" class="button button--danger">Adicionar despesa</button>
+                        </div>
+                    }
+                }
+                else
+                {
+                    <div class="inline-summary">
+                        <strong>Baixa imediata no saldo:</strong>
+                        <span>@Currency(Hub.GetDashboard(referenceDate).AvailableCheckingBalance - form.Amount)</span>
+                    </div>
+
+                    <button type="submit" class="button button--danger">Adicionar despesa</button>
+                }
+            </EditForm>
+        </article>
+
+        <article class="panel panel--wide">
+            <div class="panel__header">
+                <h2>Historico recente</h2>
+                <span class="pill">@recentItems.Count item(ns)</span>
+            </div>
+
+            @if (recentItems.Count == 0)
+            {
+                <p class="empty">Nenhuma despesa lancada ainda no contexto atual.</p>
+            }
+            else
+            {
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Descricao</th>
+                                <th>Tipo</th>
+                                <th>Responsavel</th>
+                                <th>Data</th>
+                                <th>Valor</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var item in recentItems)
+                            {
+                                <tr>
+                                    <td>
+                                        <strong>@item.Description</strong>
+                                        <div class="muted">@item.CategoryName</div>
+                                    </td>
+                                    <td>@item.Type</td>
+                                    <td>@item.ResponsibleName</td>
+                                    <td>@item.Date.ToString("dd/MM/yyyy")</td>
+                                    <td>@Currency(item.Amount)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </article>
+    </section>
+}
+
+@code {
+    private readonly CultureInfo culture = CultureInfo.GetCultureInfo("pt-BR");
+    private IReadOnlyList<Category> expenseCategories = [];
+    private List<RecentExpenseRow> recentItems = [];
+    private ExpenseLaunchForm form = new();
+    private DateOnly referenceDate;
+
+    protected override void OnInitialized()
+    {
+        Hub.StateChanged += HandleStateChanged;
+        LoadData();
+    }
+
+    private void LoadData()
+    {
+        if (!Hub.HasFamilySetup)
+        {
+            expenseCategories = [];
+            recentItems = [];
+            form = new ExpenseLaunchForm();
+            return;
+        }
+
+        referenceDate = Hub.GetPlanningReferenceDate(DateOnly.FromDateTime(DateTime.Today));
+        expenseCategories = Hub.Categories.Where(item => item.Kind == CategoryKind.Expense).ToList();
+        recentItems = BuildRecentItems();
+
+        if (form.ResponsibleId == Guid.Empty || form.CategoryId == Guid.Empty)
+        {
+            ResetForm();
+        }
+    }
+
+    private List<RecentExpenseRow> BuildRecentItems()
+    {
+        var cardRows = Hub.GetCardPurchases()
+            .Select(item => new RecentExpenseRow(
+                item.Purchase.Description,
+                $"Cartao {item.Card.Name}",
+                item.Responsible.Name,
+                item.Category.Name,
+                item.Purchase.PurchaseDate,
+                item.Purchase.TotalAmount));
+
+        var variableRows = Hub.GetVariableExpenses()
+            .Select(item => new RecentExpenseRow(
+                item.Expense.Description,
+                PaymentMethodLabel(item.Expense.PaymentMethod),
+                item.Responsible.Name,
+                item.Category.Name,
+                item.Expense.Date,
+                item.Expense.Amount));
+
+        return cardRows
+            .Concat(variableRows)
+            .OrderByDescending(item => item.Date)
+            .ThenByDescending(item => item.Amount)
+            .Take(12)
+            .ToList();
+    }
+
+    private void HandleSubmit()
+    {
+        if (form.PaymentMethod == ExpensePaymentMethod.CreditCard)
+        {
+            if (Hub.Cards.Count == 0 || form.CardId == Guid.Empty)
+            {
+                return;
+            }
+
+            Hub.AddCardPurchase(new CardPurchaseInput
+            {
+                CardId = form.CardId,
+                Description = form.Description,
+                TotalAmount = form.Amount,
+                Installments = form.Installments,
+                PurchaseDate = form.Date,
+                FirstDueDate = form.FirstDueDate,
+                CategoryId = form.CategoryId,
+                ResponsibleId = form.ResponsibleId,
+                Notes = form.Notes,
+                Status = EntryStatus.Planned
+            });
+        }
+        else
+        {
+            Hub.AddVariableExpense(new VariableExpenseInput
+            {
+                Description = form.Description,
+                Amount = form.Amount,
+                Date = form.Date,
+                PaymentMethod = form.PaymentMethod,
+                CategoryId = form.CategoryId,
+                ResponsibleId = form.ResponsibleId,
+                Notes = form.Notes,
+                Status = EntryStatus.Paid
+            });
+        }
+
+        ResetForm();
+        LoadData();
+    }
+
+    private void ApplySuggestedDueDate()
+    {
+        if (form.CardId == Guid.Empty)
+        {
+            return;
+        }
+
+        form.FirstDueDate = Hub.GetSuggestedFirstDueDate(form.CardId, form.Date);
+    }
+
+    private void ResetForm()
+    {
+        if (expenseCategories.Count == 0)
+        {
+            form = new ExpenseLaunchForm();
+            return;
+        }
+
+        var defaultCard = Hub.Cards.FirstOrDefault();
+        form = new ExpenseLaunchForm
+        {
+            ResponsibleId = Hub.SelectedMemberId,
+            CategoryId = expenseCategories.First().Id,
+            PaymentMethod = Hub.Cards.Count > 0 ? ExpensePaymentMethod.CreditCard : ExpensePaymentMethod.Pix,
+            CardId = defaultCard?.Id ?? Guid.Empty,
+            Date = referenceDate,
+            FirstDueDate = defaultCard is null ? referenceDate : Hub.GetSuggestedFirstDueDate(defaultCard.Id, referenceDate),
+            Installments = 1
+        };
+    }
+
+    private string Currency(decimal value) => value.ToString("C2", culture);
+
+    private static string PaymentMethodLabel(ExpensePaymentMethod method) =>
+        method switch
+        {
+            ExpensePaymentMethod.CreditCard => "Cartao de credito",
+            ExpensePaymentMethod.Pix => "Pix",
+            ExpensePaymentMethod.Cash => "Dinheiro",
+            _ => method.ToString()
+        };
+
+    private void HandleStateChanged()
+    {
+        LoadData();
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        Hub.StateChanged -= HandleStateChanged;
+    }
+
+    private sealed record RecentExpenseRow(
+        string Description,
+        string Type,
+        string ResponsibleName,
+        string CategoryName,
+        DateOnly Date,
+        decimal Amount);
+
+    private sealed class ExpenseLaunchForm
+    {
+        [Required]
+        public string Description { get; set; } = string.Empty;
+
+        [Range(typeof(decimal), "0.01", "999999999", ParseLimitsInInvariantCulture = true, ConvertValueInInvariantCulture = true)]
+        public decimal Amount { get; set; }
+
+        public DateOnly Date { get; set; } = DateOnly.FromDateTime(DateTime.Today);
+
+        public ExpensePaymentMethod PaymentMethod { get; set; } = ExpensePaymentMethod.CreditCard;
+
+        [Required]
+        public Guid ResponsibleId { get; set; }
+
+        [Required]
+        public Guid CategoryId { get; set; }
+
+        public Guid CardId { get; set; }
+
+        [Range(1, 48)]
+        public int Installments { get; set; } = 1;
+
+        public DateOnly FirstDueDate { get; set; } = DateOnly.FromDateTime(DateTime.Today);
+
+        public string Notes { get; set; } = string.Empty;
+    }
+}

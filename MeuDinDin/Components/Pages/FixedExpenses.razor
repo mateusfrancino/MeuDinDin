@@ -1,0 +1,446 @@
+﻿@page "/despesas-fixas"
+@implements IDisposable
+@inject IFinanceHub Hub
+
+<PageTitle>Despesas Fixas</PageTitle>
+
+@if (!Hub.HasFamilySetup)
+{
+    <SetupRequired />
+}
+else
+{
+    <section class="page-header">
+        <div>
+            <p class="eyebrow">Despesas fixas</p>
+            <h1>Obrigacoes recorrentes que formam o piso do seu mes.</h1>
+            <p class="section-text">Pausar uma despesa altera imediatamente o comprometimento dos proximos meses na projecao.</p>
+        </div>
+    </section>
+
+    <section class="content-grid">
+        <article class="panel">
+            <div class="panel__header">
+                <h2>@(editingExpenseId == Guid.Empty ? "Nova despesa recorrente" : "Editar despesa recorrente")</h2>
+                <span class="pill">@(editingExpenseId == Guid.Empty ? "Persistido" : "Edicao")</span>
+            </div>
+
+            <EditForm Model="form" OnValidSubmit="HandleSubmit" FormName="fixed-expense-create">
+                <DataAnnotationsValidator />
+                <ValidationSummary />
+
+                <div class="form-grid">
+                    <label class="field">
+                        <span>Descricao</span>
+                        <InputText @bind-Value="form.Description" />
+                    </label>
+
+                    <label class="field">
+                        <span>Valor</span>
+                        <MoneyInput @bind-Value="form.Amount" />
+                    </label>
+
+                    <label class="field">
+                        <span>Vencimento</span>
+                        <InputNumber @bind-Value="form.DueDay" />
+                    </label>
+
+                    <label class="field">
+                        <span>Inicio</span>
+                        <InputDate @bind-Value="form.StartDate" />
+                    </label>
+
+                    <label class="field">
+                        <span>Fim opcional</span>
+                        <InputDate @bind-Value="form.EndDate" />
+                    </label>
+
+                    <label class="field">
+                        <span>Responsavel</span>
+                        <InputSelect @bind-Value="form.ResponsibleId">
+                            @foreach (var member in Hub.Members)
+                            {
+                                <option value="@member.Id">@member.Name</option>
+                            }
+                        </InputSelect>
+                    </label>
+
+                    <label class="field">
+                        <span>Categoria</span>
+                        <InputSelect @bind-Value="form.CategoryId">
+                            @foreach (var category in expenseCategories)
+                            {
+                                <option value="@category.Id">@category.Name</option>
+                            }
+                        </InputSelect>
+                    </label>
+
+                    <label class="field field--full">
+                        <span>Observacao</span>
+                        <InputText @bind-Value="form.Notes" />
+                    </label>
+                </div>
+
+                <div class="button-row">
+                    <button type="submit" class="button button--primary">@(editingExpenseId == Guid.Empty ? "Adicionar despesa" : "Salvar alteracoes")</button>
+
+                    @if (editingExpenseId != Guid.Empty)
+                    {
+                        <button type="button" class="button button--ghost" @onclick="CancelEdit">Cancelar edicao</button>
+                    }
+                </div>
+            </EditForm>
+        </article>
+
+        <article class="panel panel--wide">
+            <div class="panel__header">
+                <h2>Contas recorrentes</h2>
+                <span class="pill">@items.Count item(ns)</span>
+            </div>
+
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Descricao</th>
+                            <th>Responsavel</th>
+                            <th>Categoria</th>
+                            <th>Vence</th>
+                            <th>Valor</th>
+                            <th>Status</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in items)
+                        {
+                            <tr>
+                                <td>
+                                    <strong>@item.Expense.Description</strong>
+                                    <div class="muted">@item.Expense.Notes</div>
+                                </td>
+                                <td>@item.Responsible.Name</td>
+                                <td>@item.Category.Name</td>
+                                <td>Dia @item.Expense.DueDay</td>
+                                <td>@Currency(item.Expense.Amount)</td>
+                                <td>
+                                    <span class="badge @(item.Expense.IsPaused ? "badge--muted" : "badge--positive")">
+                                        @(item.Expense.IsPaused ? "Pausada" : "Ativa")
+                                    </span>
+                                </td>
+                                <td class="actions">
+                                    <button type="button" class="button button--ghost" @onclick="@(() => StartEdit(item))">Editar</button>
+                                    <button type="button" class="button button--ghost" @onclick="@(() => TogglePause(item.Expense.Id))">
+                                        @(item.Expense.IsPaused ? "Retomar" : "Pausar")
+                                    </button>
+
+                                    @if (pendingDeleteExpenseId == item.Expense.Id)
+                                    {
+                                        <button type="button" class="button button--danger" @onclick="@(() => ConfirmRemove(item.Expense.Id))">Confirmar exclusao</button>
+                                        <button type="button" class="button button--ghost" @onclick="CancelRemove">Cancelar</button>
+                                    }
+                                    else
+                                    {
+                                        <button type="button" class="button button--danger" @onclick="@(() => RequestRemove(item.Expense.Id))">Excluir</button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </article>
+    </section>
+
+    <section class="content-grid">
+        <article class="panel panel--wide">
+            <div class="panel__header">
+                <h2>Ajustes reais do mes</h2>
+                <span class="pill">@referenceDate.ToString("MMM/yyyy", culture)</span>
+            </div>
+
+            @if (monthEditors.Count == 0)
+            {
+                <p class="empty">Nao ha despesas ativas para ajustar neste mes.</p>
+            }
+            else
+            {
+                <div class="member-grid">
+                    @foreach (var item in monthEditors)
+                    {
+                        <EditForm Model="item" OnValidSubmit="@(() => SaveMonthValue(item))" FormName="@($"fixed-month-{item.ExpenseId}")">
+                            <div class="member-card">
+                                <div>
+                                    <strong>@item.Description</strong>
+                                    <div class="muted">@item.CategoryName | @item.ResponsibleName | vence @item.DueDate.ToString("dd/MM")</div>
+                                </div>
+
+                                <div class="form-grid">
+                                    <label class="field">
+                                        <span>Estimado</span>
+                                        <input value="@Currency(item.EstimatedAmount)" disabled />
+                                    </label>
+
+                                    <label class="field">
+                                        <span>Valor real do mes</span>
+                                        <NullableMoneyInput @bind-Value="item.ActualAmount" />
+                                    </label>
+
+                                    <label class="field">
+                                        <span>Considerado agora</span>
+                                        <input value="@Currency(item.ActualAmount ?? item.EstimatedAmount)" disabled />
+                                    </label>
+
+                                    <label class="field">
+                                        <span>Status</span>
+                                        <input value="@(item.IsPaid ? "Pago" : "Em aberto")" disabled />
+                                    </label>
+                                </div>
+
+                                <div class="button-row">
+                                    <button type="submit" class="button button--primary">Salvar valor do mes</button>
+                                    <button type="button" class="button button--ghost" @onclick="@(() => ToggleMonthPaid(item))">@(item.IsPaid ? "Desfazer pagamento" : "Marcar como pago")</button>
+
+                                    @if (item.ActualAmount.HasValue)
+                                    {
+                                        <button type="button" class="button button--ghost" @onclick="@(() => ClearActualAmount(item))">Voltar para estimativa</button>
+                                    }
+                                </div>
+                            </div>
+                        </EditForm>
+                    }
+                </div>
+            }
+        </article>
+    </section>
+}
+
+@code {
+    private readonly CultureInfo culture = CultureInfo.GetCultureInfo("pt-BR");
+    private IReadOnlyList<ScopedFixedExpenseItem> items = [];
+    private IReadOnlyList<Category> expenseCategories = [];
+    private FixedExpenseEditInput form = new();
+    private List<FixedExpenseMonthEditor> monthEditors = [];
+    private Guid editingExpenseId;
+    private Guid pendingDeleteExpenseId;
+    private DateOnly referenceDate;
+
+    protected override void OnInitialized()
+    {
+        Hub.StateChanged += HandleStateChanged;
+        LoadData();
+    }
+
+    private void LoadData()
+    {
+        if (!Hub.HasFamilySetup)
+        {
+            expenseCategories = [];
+            items = [];
+            form = new FixedExpenseEditInput();
+            monthEditors = [];
+            editingExpenseId = Guid.Empty;
+            pendingDeleteExpenseId = Guid.Empty;
+            return;
+        }
+
+        referenceDate = Hub.GetPlanningReferenceDate(DateOnly.FromDateTime(DateTime.Today));
+        expenseCategories = Hub.Categories.Where(item => item.Kind == CategoryKind.Expense).ToList();
+        items = Hub.GetFixedExpenses();
+        monthEditors = Hub.GetFixedExpenseMonthStatuses(referenceDate)
+            .Select(item => new FixedExpenseMonthEditor
+            {
+                ExpenseId = item.ExpenseId,
+                Description = item.Description,
+                ResponsibleName = item.ResponsibleName,
+                CategoryName = item.CategoryName,
+                DueDate = item.DueDate,
+                EstimatedAmount = item.EstimatedAmount,
+                ActualAmount = item.ActualAmount,
+                IsPaid = item.IsPaid
+            })
+            .ToList();
+
+        if (editingExpenseId != Guid.Empty && items.All(item => item.Expense.Id != editingExpenseId))
+        {
+            editingExpenseId = Guid.Empty;
+            pendingDeleteExpenseId = Guid.Empty;
+            ResetForm();
+            return;
+        }
+
+        if (editingExpenseId == Guid.Empty && (form.ResponsibleId == Guid.Empty || form.CategoryId == Guid.Empty))
+        {
+            ResetForm();
+        }
+    }
+
+    private void HandleSubmit()
+    {
+        if (editingExpenseId == Guid.Empty)
+        {
+            Hub.AddFixedExpense(new FixedExpenseInput
+            {
+                Description = form.Description,
+                Amount = form.Amount,
+                DueDay = form.DueDay,
+                StartDate = form.StartDate,
+                EndDate = form.EndDate,
+                Status = form.Status,
+                ResponsibleId = form.ResponsibleId,
+                CategoryId = form.CategoryId,
+                Notes = form.Notes
+            });
+        }
+        else
+        {
+            Hub.UpdateFixedExpense(form);
+            editingExpenseId = Guid.Empty;
+        }
+
+        ResetForm();
+        LoadData();
+    }
+
+    private void StartEdit(ScopedFixedExpenseItem item)
+    {
+        editingExpenseId = item.Expense.Id;
+        pendingDeleteExpenseId = Guid.Empty;
+        form = new FixedExpenseEditInput
+        {
+            Id = item.Expense.Id,
+            Description = item.Expense.Description,
+            Amount = item.Expense.Amount,
+            DueDay = item.Expense.DueDay,
+            StartDate = item.Expense.StartDate,
+            EndDate = item.Expense.EndDate,
+            Status = item.Expense.Status,
+            ResponsibleId = item.Expense.ResponsibleId,
+            CategoryId = item.Expense.CategoryId,
+            Notes = item.Expense.Notes
+        };
+    }
+
+    private void CancelEdit()
+    {
+        editingExpenseId = Guid.Empty;
+        pendingDeleteExpenseId = Guid.Empty;
+        ResetForm();
+    }
+
+    private void TogglePause(Guid id)
+    {
+        Hub.PauseFixedExpense(id);
+        LoadData();
+    }
+
+    private void RequestRemove(Guid id)
+    {
+        pendingDeleteExpenseId = id;
+    }
+
+    private void CancelRemove()
+    {
+        pendingDeleteExpenseId = Guid.Empty;
+    }
+
+    private void ConfirmRemove(Guid id)
+    {
+        Hub.RemoveFixedExpense(id);
+
+        if (editingExpenseId == id)
+        {
+            editingExpenseId = Guid.Empty;
+            ResetForm();
+        }
+
+        pendingDeleteExpenseId = Guid.Empty;
+        LoadData();
+    }
+
+    private void SaveMonthValue(FixedExpenseMonthEditor item)
+    {
+        Hub.UpdateFixedExpenseMonth(new FixedExpenseMonthUpdateInput
+        {
+            ExpenseId = item.ExpenseId,
+            Month = referenceDate,
+            ActualAmount = item.ActualAmount,
+            IsPaid = item.IsPaid
+        });
+        LoadData();
+    }
+
+    private void ToggleMonthPaid(FixedExpenseMonthEditor item)
+    {
+        Hub.UpdateFixedExpenseMonth(new FixedExpenseMonthUpdateInput
+        {
+            ExpenseId = item.ExpenseId,
+            Month = referenceDate,
+            ActualAmount = item.ActualAmount,
+            IsPaid = !item.IsPaid
+        });
+        LoadData();
+    }
+
+    private void ClearActualAmount(FixedExpenseMonthEditor item)
+    {
+        Hub.UpdateFixedExpenseMonth(new FixedExpenseMonthUpdateInput
+        {
+            ExpenseId = item.ExpenseId,
+            Month = referenceDate,
+            ActualAmount = null,
+            IsPaid = item.IsPaid
+        });
+        LoadData();
+    }
+
+    private void ResetForm()
+    {
+        if (expenseCategories.Count == 0)
+        {
+            form = new FixedExpenseEditInput();
+            return;
+        }
+
+        form = new FixedExpenseEditInput
+        {
+            ResponsibleId = Hub.SelectedMemberId,
+            CategoryId = expenseCategories.First().Id,
+            DueDay = Math.Min(DateTime.Today.Day, DateTime.DaysInMonth(referenceDate.Year, referenceDate.Month)),
+            StartDate = referenceDate
+        };
+    }
+
+    private string Currency(decimal value) => value.ToString("C2", culture);
+
+    private void HandleStateChanged()
+    {
+        LoadData();
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        Hub.StateChanged -= HandleStateChanged;
+    }
+
+    private sealed class FixedExpenseMonthEditor
+    {
+        public Guid ExpenseId { get; set; }
+
+        public string Description { get; set; } = string.Empty;
+
+        public string ResponsibleName { get; set; } = string.Empty;
+
+        public string CategoryName { get; set; } = string.Empty;
+
+        public DateOnly DueDate { get; set; }
+
+        public decimal EstimatedAmount { get; set; }
+
+        public decimal? ActualAmount { get; set; }
+
+        public bool IsPaid { get; set; }
+    }
+}
+

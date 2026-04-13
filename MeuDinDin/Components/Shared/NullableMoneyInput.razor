@@ -1,0 +1,64 @@
+@inherits InputBase<decimal?>
+
+<input type="text"
+       inputmode="decimal"
+       name="@NameAttributeValue"
+       class="@CssClass"
+       value="@displayValue"
+       @oninput="HandleInput"
+       @onblur="HandleBlur"
+       @attributes="AdditionalAttributes" />
+
+@code {
+    private string displayValue = string.Empty;
+    private bool isEditing;
+
+    protected override void OnParametersSet()
+    {
+        if (!isEditing)
+        {
+            displayValue = CurrentValue.HasValue
+                ? MoneyMask.FormatValue(CurrentValue.Value)
+                : string.Empty;
+        }
+    }
+
+    protected override bool TryParseValueFromString(string? value, out decimal? result, out string validationErrorMessage)
+    {
+        if (MoneyMask.TryParseNullable(value, out result))
+        {
+            validationErrorMessage = null!;
+            return true;
+        }
+
+        validationErrorMessage = "Informe um valor monetario valido.";
+        return false;
+    }
+
+    protected override string? FormatValueAsString(decimal? value)
+    {
+        return value.HasValue ? MoneyMask.FormatValue(value.Value) : string.Empty;
+    }
+
+    private void HandleInput(ChangeEventArgs args)
+    {
+        isEditing = true;
+        displayValue = MoneyMask.FormatTyping(args.Value?.ToString());
+
+        if (MoneyMask.TryParseNullable(displayValue, out var parsed))
+        {
+            CurrentValue = parsed;
+        }
+    }
+
+    private void HandleBlur(FocusEventArgs _)
+    {
+        isEditing = false;
+        displayValue = MoneyMask.FormatNullableCompleted(displayValue);
+
+        if (MoneyMask.TryParseNullable(displayValue, out var parsed))
+        {
+            CurrentValue = parsed;
+        }
+    }
+}

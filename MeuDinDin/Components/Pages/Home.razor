@@ -1,0 +1,233 @@
+@page "/"
+@implements IDisposable
+@inject IFinanceHub Hub
+
+<PageTitle>Dashboard</PageTitle>
+
+@if (!Hub.HasFamilySetup)
+{
+    <SetupWizard />
+}
+else
+{
+    <section class="hero">
+        <div>
+            <p class="eyebrow">Dashboard principal</p>
+            <h1>Visibilidade do que ja esta comprometido e do que ainda sobra.</h1>
+            <p class="hero__text">O sistema combina receitas recorrentes, despesas fixas, despesas avulsas e compras parceladas para mostrar o impacto real do mes e a projecao dos proximos meses.</p>
+        </div>
+        <div class="hero__summary">
+            <div class="hero__summary-label">Meta de despesas</div>
+            <div class="hero__summary-value">@Currency(dashboard.ExpenseGoal)</div>
+            <div class="progress">
+                <div class="progress__fill @(dashboard.ExpenseGoalUsage > 1 ? "is-danger" : string.Empty)" style="@($"width:{Math.Min(dashboard.ExpenseGoalUsage * 100m, 100m).ToString(CultureInfo.InvariantCulture)}%")"></div>
+            </div>
+            <div class="hero__summary-helper">@Percent(dashboard.ExpenseGoalUsage) utilizado no periodo atual</div>
+        </div>
+    </section>
+
+    <section class="quick-actions">
+        <a class="quick-action quick-action--expense" href="/lancamentos/despesas">
+            <span class="quick-action__eyebrow">Uso diario</span>
+            <strong>Lancar despesa</strong>
+            <span>Pix, dinheiro ou cartao de credito em uma unica tela.</span>
+        </a>
+        <a class="quick-action quick-action--income" href="/receitas">
+            <span class="quick-action__eyebrow">Uso diario</span>
+            <strong>Lancar receita</strong>
+            <span>Entrada recorrente ou avulsa com impacto imediato na projecao.</span>
+        </a>
+    </section>
+
+    <section class="metrics-grid">
+        <MetricCard Label="Renda do mes" Value="@Currency(dashboard.MonthlyIncome)" Helper="Entradas recorrentes e extras" Tone="positive" />
+        <MetricCard Label="Despesas do mes" Value="@Currency(dashboard.MonthlyExpenses)" Helper="Fixas, avulsas e parcelas do cartao" Tone="warning" />
+        <MetricCard Label="Pagas na hora" Value="@Currency(dashboard.ImmediateExpenses)" Helper="Pix e dinheiro baixados no saldo" Tone="danger" />
+        <MetricCard Label="Ja pago" Value="@Currency(dashboard.PaidAmount)" Helper="Compromissos marcados como pagos" Tone="neutral" />
+        <MetricCard Label="A vencer" Value="@Currency(dashboard.DueAmount)" Helper="Compromissos ainda em aberto no mes" Tone="neutral" />
+        <MetricCard Label="Saldo em conta" Value="@Currency(dashboard.AvailableCheckingBalance)" Helper="Saldo base + receitas - despesas avulsas" Tone="neutral" />
+        <MetricCard Label="Sobra prevista" Value="@Currency(dashboard.ForecastSurplus)" Helper="Renda menos gastos previstos" Tone="positive" />
+        <MetricCard Label="Quanto investir" Value="@Currency(dashboard.InvestableAmount)" Helper="Capacidade atual de aporte" Tone="positive" />
+        <MetricCard Label="Investido" Value="@Currency(dashboard.InvestedBalance)" Helper="Saldo investido consolidado" Tone="neutral" />
+        <MetricCard Label="Media de sobra" Value="@Currency(projection.AverageSurplus)" Helper="Base dos proximos 12 meses" Tone="neutral" />
+    </section>
+
+    <section class="content-grid">
+        <article class="panel">
+            <div class="panel__header">
+                <h2>Alertas</h2>
+                <span class="pill">@dashboard.Alerts.Count item(ns)</span>
+            </div>
+
+            @if (dashboard.Alerts.Count == 0)
+            {
+                <p class="empty">Nenhum alerta relevante para o contexto atual.</p>
+            }
+            else
+            {
+                <div class="alert-list">
+                    @foreach (var alert in dashboard.Alerts)
+                    {
+                        <div class="alert-item @($"alert-item--{alert.Severity}")">
+                            <strong>@alert.Title</strong>
+                            <span>@alert.Message</span>
+                        </div>
+                    }
+                </div>
+            }
+        </article>
+
+        <article class="panel">
+            <div class="panel__header">
+                <h2>Proximos vencimentos</h2>
+                <span class="pill">45 dias</span>
+            </div>
+
+            <div class="list">
+                @foreach (var item in dashboard.UpcomingDueItems)
+                {
+                    <div class="list__row">
+                        <div>
+                            <strong>@item.Description</strong>
+                            <div class="muted">@item.Source | @item.ResponsibleName</div>
+                        </div>
+                        <div class="text-right">
+                            <strong>@Currency(item.Amount)</strong>
+                            <div class="muted">@item.DueDate.ToString("dd/MM")</div>
+                        </div>
+                    </div>
+                }
+            </div>
+        </article>
+
+        <article class="panel">
+            <div class="panel__header">
+                <h2>Parcelas acabando</h2>
+                <span class="pill">Curto prazo</span>
+            </div>
+
+            <div class="list">
+                @foreach (var item in dashboard.EndingSoonInstallments)
+                {
+                    <div class="list__row">
+                        <div>
+                            <strong>@item.Description</strong>
+                            <div class="muted">@item.CardName | @item.ResponsibleName</div>
+                        </div>
+                        <div class="text-right">
+                            <strong>@item.CurrentInstallmentNumber/@item.TotalInstallments | faltam @item.RemainingInstallments</strong>
+                            <div class="muted">Final @item.FinalDueDate.ToString("MM/yyyy")</div>
+                        </div>
+                    </div>
+                }
+            </div>
+        </article>
+    </section>
+
+    <section class="content-grid">
+        <article class="panel">
+            <div class="panel__header">
+                <h2>Resumo por pessoa</h2>
+                <span class="pill">@dashboard.MemberSummaries.Count membro(s)</span>
+            </div>
+
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Responsavel</th>
+                            <th>Renda</th>
+                            <th>Gastos</th>
+                            <th>Sobra</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in dashboard.MemberSummaries)
+                        {
+                            <tr>
+                                <td>@item.Name</td>
+                                <td>@Currency(item.Income)</td>
+                                <td>@Currency(item.Expenses)</td>
+                                <td class="@(item.Surplus < 0 ? "text-danger" : "text-positive")">@Currency(item.Surplus)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </article>
+
+        <article class="panel panel--wide">
+            <div class="panel__header">
+                <h2>Comprometimento dos proximos 6 meses</h2>
+                <span class="pill">Preview</span>
+            </div>
+
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Mes</th>
+                            <th>Renda</th>
+                            <th>Gastos</th>
+                            <th>Livre</th>
+                            <th>Liberado</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in projection.Months.Take(6))
+                        {
+                            <tr>
+                                <td>@item.Label</td>
+                                <td>@Currency(item.Income)</td>
+                                <td class="@(item.AboveGoal ? "text-danger" : string.Empty)">@Currency(item.TotalExpenses)</td>
+                                <td class="@(item.Surplus < 0 ? "text-danger" : "text-positive")">@Currency(item.Surplus)</td>
+                                <td>@Currency(item.ReleasedAmount)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </article>
+    </section>
+}
+
+@code {
+    private readonly CultureInfo culture = CultureInfo.GetCultureInfo("pt-BR");
+    private DashboardSnapshot dashboard = new(0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, [], [], [], []);
+    private ProjectionSnapshot projection = new([], 0m, 0m, 0m);
+
+    protected override void OnInitialized()
+    {
+        Hub.StateChanged += HandleStateChanged;
+        LoadData();
+    }
+
+    private void LoadData()
+    {
+        if (!Hub.HasFamilySetup)
+        {
+            dashboard = new DashboardSnapshot(0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, [], [], [], []);
+            projection = new ProjectionSnapshot([], 0m, 0m, 0m);
+            return;
+        }
+
+        var referenceDate = Hub.GetPlanningReferenceDate(DateOnly.FromDateTime(DateTime.Today));
+        dashboard = Hub.GetDashboard(referenceDate);
+        projection = Hub.GetProjection(referenceDate, 12);
+    }
+
+    private string Currency(decimal value) => value.ToString("C2", culture);
+
+    private string Percent(decimal value) => value.ToString("P0", culture);
+
+    private void HandleStateChanged()
+    {
+        LoadData();
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        Hub.StateChanged -= HandleStateChanged;
+    }
+}

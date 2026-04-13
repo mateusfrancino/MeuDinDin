@@ -1,0 +1,22 @@
+<article class="metric-card @Tone">
+    <div class="metric-card__label">@Label</div>
+    <div class="metric-card__value">@Value</div>
+    @if (!string.IsNullOrWhiteSpace(Helper))
+    {
+        <div class="metric-card__helper">@Helper</div>
+    }
+</article>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Label { get; set; } = string.Empty;
+
+    [Parameter, EditorRequired]
+    public string Value { get; set; } = string.Empty;
+
+    [Parameter]
+    public string Helper { get; set; } = string.Empty;
+
+    [Parameter]
+    public string Tone { get; set; } = "neutral";
+}

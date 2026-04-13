@@ -1,0 +1,313 @@
+﻿@page "/simulacoes"
+@implements IDisposable
+@inject IFinanceHub Hub
+
+<PageTitle>Simulacoes</PageTitle>
+
+@if (!Hub.HasFamilySetup)
+{
+    <SetupRequired />
+}
+else
+{
+    <section class="page-header">
+        <div>
+            <p class="eyebrow">Planejamento de compra</p>
+            <h1>Simule antes de assumir um novo compromisso.</h1>
+            <p class="section-text">A simulacao usa a base atual de receitas e despesas para mostrar o impacto da compra no mes atual e nos meses seguintes.</p>
+        </div>
+    </section>
+
+    @if (Hub.Cards.Count == 0)
+    {
+        <section class="panel setup-panel">
+            <div class="panel__header">
+                <h2>Cadastre um cartao primeiro</h2>
+                <span class="pill">Dependencia</span>
+            </div>
+
+            <p class="section-text">A simulacao de compra depende de um cartao cadastrado para projetar vencimentos e parcelas.</p>
+            <a class="button button--primary" href="/cartoes">Ir para cartoes</a>
+        </section>
+    }
+    else
+    {
+        <section class="content-grid">
+            <article class="panel">
+                <div class="panel__header">
+                    <h2>Nova simulacao</h2>
+                    <span class="pill">12 meses</span>
+                </div>
+
+                <EditForm Model="form" OnValidSubmit="RefreshAnalysis" FormName="simulation-create">
+                    <DataAnnotationsValidator />
+                    <ValidationSummary />
+
+                    <div class="form-grid">
+                        <label class="field">
+                            <span>Descricao</span>
+                            <InputText @bind-Value="form.Description" />
+                        </label>
+
+                        <label class="field">
+                            <span>Valor</span>
+                            <MoneyInput @bind-Value="form.TotalAmount" />
+                        </label>
+
+                        <label class="field">
+                            <span>Data prevista</span>
+                            <InputDate @bind-Value="form.PlannedDate" />
+                        </label>
+
+                        <label class="field">
+                            <span>Cartao</span>
+                            <InputSelect @bind-Value="form.CardId">
+                                @foreach (var card in Hub.Cards)
+                                {
+                                    <option value="@card.Id">@card.Name</option>
+                                }
+                            </InputSelect>
+                        </label>
+
+                        <label class="field">
+                            <span>Responsavel</span>
+                            <InputSelect @bind-Value="form.ResponsibleId">
+                                @foreach (var member in Hub.Members)
+                                {
+                                    <option value="@member.Id">@member.Name</option>
+                                }
+                            </InputSelect>
+                        </label>
+
+                        <label class="field">
+                            <span>Categoria</span>
+                            <InputSelect @bind-Value="form.CategoryId">
+                                @foreach (var category in expenseCategories)
+                                {
+                                    <option value="@category.Id">@category.Name</option>
+                                }
+                            </InputSelect>
+                        </label>
+
+                        <label class="field">
+                            <span>Parcelas</span>
+                            <InputNumber @bind-Value="form.Installments" />
+                        </label>
+
+                        <label class="field field--full">
+                            <span>Observacao</span>
+                            <InputText @bind-Value="form.Notes" />
+                        </label>
+                    </div>
+
+                    <label class="checkbox">
+                        <InputCheckbox @bind-Value="form.IsInstallment" />
+                        <span>Compra parcelada</span>
+                    </label>
+
+                    <div class="button-row">
+                        <button type="submit" class="button button--primary">Atualizar impacto</button>
+                        <button type="button" class="button button--ghost" @onclick="SaveScenario">Salvar simulacao</button>
+                    </div>
+                </EditForm>
+            </article>
+
+            <article class="panel panel--wide">
+                <div class="panel__header">
+                    <h2>Resumo do impacto</h2>
+                    <span class="pill">Primeiro vencimento @analysis.FirstDueDate.ToString("dd/MM")</span>
+                </div>
+
+                <div class="metrics-grid metrics-grid--inside">
+                    <MetricCard Label="Impacto no mes atual" Value="@Currency(analysis.CurrentMonthImpact)" Helper="Acrescimo imediato" Tone="warning" />
+                    <MetricCard Label="Pico mensal" Value="@Currency(analysis.PeakMonthlyImpact)" Helper="Maior adicao em um unico mes" Tone="warning" />
+                    <MetricCard Label="Meta de despesa" Value="@(analysis.BreaksGoal ? "Ultrapassa" : "Controlada")" Helper="Se a compra estoura o teto" Tone="@(analysis.BreaksGoal ? "danger" : "positive")" />
+                </div>
+
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Mes</th>
+                                <th>Acrescimo</th>
+                                <th>Gasto projetado</th>
+                                <th>Sobra apos simulacao</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var month in analysis.Months.Where(item => item.AddedExpense > 0m || item.AboveGoal))
+                            {
+                                <tr>
+                                    <td>@month.Label</td>
+                                    <td>@Currency(month.AddedExpense)</td>
+                                    <td class="@(month.AboveGoal ? "text-danger" : string.Empty)">@Currency(month.ProjectedExpense)</td>
+                                    <td class="@(month.ProjectedSurplus < 0 ? "text-danger" : "text-positive")">@Currency(month.ProjectedSurplus)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </article>
+        </section>
+
+        <section class="content-grid">
+            <article class="panel panel--wide">
+                <div class="panel__header">
+                    <h2>Simulacoes salvas</h2>
+                    <span class="pill">@saved.Count item(ns)</span>
+                </div>
+
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Descricao</th>
+                                <th>Data</th>
+                                <th>Responsavel</th>
+                                <th>Impacto atual</th>
+                                <th>Pico</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var item in saved)
+                            {
+                                <tr>
+                                    <td>
+                                        <strong>@item.Description</strong>
+                                        <div class="muted">@item.CardName | @(item.IsInstallment ? $"{item.Installments}x" : "A vista")</div>
+                                    </td>
+                                    <td>@item.PlannedDate.ToString("dd/MM/yyyy")</td>
+                                    <td>@item.ResponsibleName</td>
+                                    <td>@Currency(item.CurrentMonthImpact)</td>
+                                    <td class="@(item.BreaksGoal ? "text-danger" : string.Empty)">@Currency(item.PeakMonthlyImpact)</td>
+                                    <td class="actions">
+                                        <button type="button" class="button button--ghost" @onclick="() => Convert(item.Id)">Transformar em compra</button>
+                                        <button type="button" class="button button--danger" @onclick="() => Remove(item.Id)">Excluir</button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </article>
+        </section>
+    }
+}
+
+@code {
+    private readonly CultureInfo culture = CultureInfo.GetCultureInfo("pt-BR");
+    private IReadOnlyList<Category> expenseCategories = [];
+    private IReadOnlyList<SavedSimulationSummary> saved = [];
+    private PurchaseSimulationInput form = new();
+    private SimulationInsight analysis = new(0m, 0m, false, DateOnly.FromDateTime(DateTime.Today), []);
+
+    protected override void OnInitialized()
+    {
+        Hub.StateChanged += HandleStateChanged;
+        LoadData();
+    }
+
+    private void LoadData()
+    {
+        if (!Hub.HasFamilySetup)
+        {
+            expenseCategories = [];
+            saved = [];
+            form = new PurchaseSimulationInput();
+            analysis = new SimulationInsight(0m, 0m, false, DateOnly.FromDateTime(DateTime.Today), []);
+            return;
+        }
+
+        var referenceDate = Hub.GetPlanningReferenceDate(DateOnly.FromDateTime(DateTime.Today));
+        expenseCategories = Hub.Categories.Where(item => item.Kind == CategoryKind.Expense).ToList();
+        saved = Hub.GetSimulationSummaries(referenceDate);
+
+        if (Hub.Cards.Count == 0)
+        {
+            form = new PurchaseSimulationInput();
+            analysis = new SimulationInsight(0m, 0m, false, referenceDate, []);
+            return;
+        }
+
+        if (form.CardId == Guid.Empty || form.CategoryId == Guid.Empty)
+        {
+            ResetForm();
+        }
+
+        RefreshAnalysis();
+    }
+
+    private void RefreshAnalysis()
+    {
+        var referenceDate = Hub.GetPlanningReferenceDate(DateOnly.FromDateTime(DateTime.Today));
+        if (Hub.Cards.Count == 0)
+        {
+            analysis = new SimulationInsight(0m, 0m, false, referenceDate, []);
+            return;
+        }
+
+        if (!form.IsInstallment)
+        {
+            form.Installments = 1;
+        }
+
+        analysis = Hub.AnalyzeSimulation(form, referenceDate, 12);
+    }
+
+    private void SaveScenario()
+    {
+        RefreshAnalysis();
+        Hub.SaveSimulation(form);
+        ResetForm();
+        LoadData();
+    }
+
+    private void Convert(Guid id)
+    {
+        Hub.ConvertSimulationToPurchase(id);
+        LoadData();
+    }
+
+    private void Remove(Guid id)
+    {
+        Hub.RemoveSimulation(id);
+        LoadData();
+    }
+
+    private void ResetForm()
+    {
+        if (Hub.Cards.Count == 0 || expenseCategories.Count == 0)
+        {
+            form = new PurchaseSimulationInput();
+            return;
+        }
+
+        var referenceDate = Hub.GetPlanningReferenceDate(DateOnly.FromDateTime(DateTime.Today));
+        form = new PurchaseSimulationInput
+        {
+            Description = "Nova compra planejada",
+            CardId = Hub.Cards.First().Id,
+            ResponsibleId = Hub.SelectedMemberId,
+            CategoryId = expenseCategories.First().Id,
+            PlannedDate = referenceDate,
+            IsInstallment = true,
+            Installments = 6,
+            TotalAmount = 1200m
+        };
+    }
+
+    private string Currency(decimal value) => value.ToString("C2", culture);
+
+    private void HandleStateChanged()
+    {
+        LoadData();
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        Hub.StateChanged -= HandleStateChanged;
+    }
+}
+

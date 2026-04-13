@@ -1,0 +1,776 @@
+﻿@page "/cartoes"
+@implements IDisposable
+@inject IFinanceHub Hub
+
+<PageTitle>Cartoes</PageTitle>
+
+@if (!Hub.HasFamilySetup)
+{
+    <SetupRequired />
+}
+else
+{
+    <section class="page-header">
+        <div>
+            <p class="eyebrow">Cartoes e parcelamentos</p>
+            <h1>Compras parceladas com impacto automatico na linha do tempo.</h1>
+            <p class="section-text">Agora voce consegue manter o cadastro normal e ainda analisar cada cartao separadamente para entender o que veio, o que vira e o que ja foi liberado.</p>
+        </div>
+    </section>
+
+    @if (Hub.Cards.Count > 0)
+    {
+        <section class="metrics-grid">
+            @foreach (var card in Hub.Cards)
+            {
+                var holder = Hub.Members.First(member => member.Id == card.HolderId);
+                <MetricCard Label="@card.Name" Value="@(card.Limit?.ToString("C2", culture) ?? "Sem limite")" Helper="@($"{card.Issuer} | titular {holder.Name} | vence dia {card.DueDay}")" Tone="neutral" />
+            }
+        </section>
+
+        <section class="content-grid">
+            <article class="panel">
+                <div class="panel__header">
+                    <h2>Cartao em foco</h2>
+                    <span class="pill">Analise</span>
+                </div>
+
+                <label class="field">
+                    <span>Selecionar cartao</span>
+                    <select value="@selectedCardId" @onchange="OnSelectedCardChanged">
+                        @foreach (var card in Hub.Cards)
+                        {
+                            <option value="@card.Id">@card.Name</option>
+                        }
+                    </select>
+                </label>
+
+                @if (cardDetails is not null)
+                {
+                    <div class="info-stack">
+                        <div>
+                            <strong>@cardDetails.CardName</strong>
+                            <div class="muted">@cardDetails.Issuer | titular @cardDetails.HolderName</div>
+                        </div>
+                        <div class="info-pair">
+                            <span>Vencimento</span>
+                            <strong>Dia @cardDetails.DueDay</strong>
+                        </div>
+                        <div class="info-pair">
+                            <span>Limite</span>
+                            <strong>@(cardDetails.Limit?.ToString("C2", culture) ?? "Sem limite informado")</strong>
+                        </div>
+                    </div>
+                }
+            </article>
+
+            <article class="panel panel--wide">
+                <div class="panel__header">
+                    <h2>Resumo do cartao</h2>
+                    <span class="pill">@referenceDate.ToString("MMM/yyyy", culture)</span>
+                </div>
+
+                @if (cardDetails is null)
+                {
+                    <p class="empty">Selecione um cartao para carregar o detalhamento.</p>
+                }
+                else
+                {
+                    <div class="metrics-grid metrics-grid--inside metrics-grid--three">
+                        <MetricCard Label="Mes anterior" Value="@Currency(cardDetails.PreviousMonthTotal)" Helper="Total que veio antes" Tone="neutral" />
+                        <MetricCard Label="Mes atual" Value="@Currency(cardDetails.CurrentMonthTotal)" Helper="Comprometimento deste mes" Tone="warning" />
+                        <MetricCard Label="Proximo mes" Value="@Currency(cardDetails.NextMonthTotal)" Helper="O que ja esta projetado" Tone="neutral" />
+                    </div>
+
+                    <div class="summary-stat-grid">
+                        <div class="summary-stat">
+                            <span>Compras ativas</span>
+                            <strong>@cardDetails.ActivePurchaseCount</strong>
+                        </div>
+                        <div class="summary-stat">
+                            <span>Encerradas recente</span>
+                            <strong>@cardDetails.RecentlyFinishedCount</strong>
+                        </div>
+                        <div class="summary-stat">
+                            <span>Valor liberado</span>
+                            <strong>@Currency(cardDetails.ReleasedAmount)</strong>
+                        </div>
+                        <div class="summary-stat">
+                            <span>Fatura atual</span>
+                            <strong>@GetCurrentBillLabel()</strong>
+                            <div class="muted">@GetCurrentBillHelper()</div>
+                        </div>
+                    </div>
+
+                    @if (currentBillStatus is not null && currentBillStatus.Amount > 0m)
+                    {
+                        <div class="button-row">
+                            <button type="button" class="button button--ghost" @onclick="ToggleCurrentBillPaid">
+                                @(currentBillStatus.IsPaid ? "Desfazer pagamento da fatura" : "Marcar fatura como paga")
+                            </button>
+                        </div>
+                    }
+                }
+            </article>
+        </section>
+
+        @if (cardDetails is not null)
+        {
+            <section class="content-grid">
+                <article class="panel panel--wide">
+                    <div class="panel__header">
+                        <h2>Despesas por mes do cartao</h2>
+                        <span class="pill">Anterior | Atual | Proximo</span>
+                    </div>
+
+                    <div class="month-breakdown-grid">
+                        @foreach (var month in cardDetails.Months)
+                        {
+                            <div class="subpanel">
+                                <div class="subpanel__header">
+                                    <div>
+                                        <strong>@month.Label</strong>
+                                        <div class="muted">@month.Charges.Count item(ns)</div>
+                                    </div>
+                                    <strong>@Currency(month.Total)</strong>
+                                </div>
+
+                                @if (month.Charges.Count == 0)
+                                {
+                                    <p class="empty">Nenhuma despesa projetada para este cartao nesse mes.</p>
+                                }
+                                else
+                                {
+                                    <div class="list">
+                                        @foreach (var charge in month.Charges)
+                                        {
+                                            <div class="list__row">
+                                                <div>
+                                                    <strong>@charge.Description</strong>
+                                                    <div class="muted">@charge.CategoryName | @charge.ResponsibleName</div>
+                                                </div>
+                                                <div class="text-right">
+                                                    <strong>@charge.InstallmentLabel</strong>
+                                                    <div class="muted">@Currency(charge.Amount) | @charge.DueDate.ToString("dd/MM")</div>
+                                                </div>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                </article>
+            </section>
+
+            <section class="content-grid">
+                <article class="panel panel--wide">
+                    <div class="panel__header">
+                        <h2>Parcelas ativas do cartao</h2>
+                        <span class="pill">@cardDetails.ActiveInstallments.Count ativo(s)</span>
+                    </div>
+
+                    @if (cardDetails.ActiveInstallments.Count == 0)
+                    {
+                        <p class="empty">Nao ha parcelamentos ativos nesse cartao no contexto atual.</p>
+                    }
+                    else
+                    {
+                        <div class="table-wrap">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Compra</th>
+                                        <th>Responsavel</th>
+                                        <th>Valor</th>
+                                        <th>Atual</th>
+                                        <th>Faltam</th>
+                                        <th>Final</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var item in cardDetails.ActiveInstallments)
+                                    {
+                                        <tr>
+                                            <td>
+                                                <strong>@item.Description</strong>
+                                                <div class="muted">@item.CategoryName</div>
+                                            </td>
+                                            <td>@item.ResponsibleName</td>
+                                            <td>@Currency(item.InstallmentAmount)</td>
+                                            <td>@item.CurrentInstallmentNumber / @item.TotalInstallments</td>
+                                            <td>@item.RemainingInstallments</td>
+                                            <td class="@(item.EndsSoon ? "text-warning" : string.Empty)">@item.FinalDueDate.ToString("MM/yyyy")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </article>
+
+                <article class="panel">
+                    <div class="panel__header">
+                        <h2>O que acabou</h2>
+                        <span class="pill">Recente</span>
+                    </div>
+
+                    @if (cardDetails.RecentlyFinished.Count == 0)
+                    {
+                        <p class="empty">Nenhuma compra terminou no mes anterior ou atual.</p>
+                    }
+                    else
+                    {
+                        <div class="list">
+                            @foreach (var item in cardDetails.RecentlyFinished)
+                            {
+                                <div class="list__row">
+                                    <div>
+                                        <strong>@item.Description</strong>
+                                        <div class="muted">@item.CategoryName | @item.ResponsibleName</div>
+                                    </div>
+                                    <div class="text-right">
+                                        <strong>@Currency(item.ReleasedAmount)</strong>
+                                        <div class="muted">Encerrado em @item.FinalDueDate.ToString("MM/yyyy")</div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </article>
+            </section>
+        }
+    }
+
+    <section class="content-grid">
+        <article class="panel">
+            <div class="panel__header">
+                <h2>Novo cartao</h2>
+                <span class="pill">Base real</span>
+            </div>
+
+            <EditForm Model="cardForm" OnValidSubmit="HandleCardSubmit" FormName="card-create">
+                <DataAnnotationsValidator />
+                <ValidationSummary />
+
+                <div class="form-grid">
+                    <label class="field">
+                        <span>Nome</span>
+                        <InputText @bind-Value="cardForm.Name" />
+                    </label>
+
+                    <label class="field">
+                        <span>Banco / emissor</span>
+                        <InputText @bind-Value="cardForm.Issuer" />
+                    </label>
+
+                    <label class="field">
+                        <span>Titular</span>
+                        <InputSelect @bind-Value="cardForm.HolderId">
+                            @foreach (var member in Hub.Members)
+                            {
+                                <option value="@member.Id">@member.Name</option>
+                            }
+                        </InputSelect>
+                    </label>
+
+                    <label class="field">
+                        <span>Dia do vencimento</span>
+                        <InputNumber @bind-Value="cardForm.DueDay" />
+                    </label>
+
+                    <label class="field">
+                        <span>Limite opcional</span>
+                        <NullableMoneyInput @bind-Value="cardForm.Limit" />
+                    </label>
+                </div>
+
+                <button type="submit" class="button button--primary">Adicionar cartao</button>
+            </EditForm>
+        </article>
+
+        <article class="panel panel--wide">
+            <div class="panel__header">
+                <h2>@(editingPurchaseId == Guid.Empty ? "Nova compra no cartao" : "Editar compra no cartao")</h2>
+                <span class="pill">@(editingPurchaseId == Guid.Empty ? "Parcelamento automatico" : "Edicao")</span>
+            </div>
+
+            @if (Hub.Cards.Count == 0)
+            {
+                <p class="empty">Cadastre ao menos um cartao para comecar a registrar compras parceladas.</p>
+            }
+            else
+            {
+                <EditForm Model="purchaseForm" OnValidSubmit="HandlePurchaseSubmit" FormName="card-purchase-create">
+                    <DataAnnotationsValidator />
+                    <ValidationSummary />
+
+                    <div class="form-grid">
+                        <label class="field">
+                            <span>Descricao</span>
+                            <InputText @bind-Value="purchaseForm.Description" />
+                        </label>
+
+                        <label class="field">
+                            <span>Valor total</span>
+                            <MoneyInput @bind-Value="purchaseForm.TotalAmount" />
+                        </label>
+
+                        <label class="field">
+                            <span>Parcelas</span>
+                            <InputNumber @bind-Value="purchaseForm.Installments" />
+                        </label>
+
+                        <label class="field">
+                            <span>Data da compra</span>
+                            <InputDate @bind-Value="purchaseForm.PurchaseDate" />
+                        </label>
+
+                        <label class="field">
+                            <span>Primeiro vencimento</span>
+                            <InputDate @bind-Value="purchaseForm.FirstDueDate" />
+                        </label>
+
+                        <label class="field">
+                            <span>Cartao</span>
+                            <InputSelect @bind-Value="purchaseForm.CardId">
+                                @foreach (var card in Hub.Cards)
+                                {
+                                    <option value="@card.Id">@card.Name</option>
+                                }
+                            </InputSelect>
+                        </label>
+
+                        <label class="field">
+                            <span>Responsavel</span>
+                            <InputSelect @bind-Value="purchaseForm.ResponsibleId">
+                                @foreach (var member in Hub.Members)
+                                {
+                                    <option value="@member.Id">@member.Name</option>
+                                }
+                            </InputSelect>
+                        </label>
+
+                        <label class="field">
+                            <span>Categoria</span>
+                            <InputSelect @bind-Value="purchaseForm.CategoryId">
+                                @foreach (var category in expenseCategories)
+                                {
+                                    <option value="@category.Id">@category.Name</option>
+                                }
+                            </InputSelect>
+                        </label>
+
+                        <label class="field field--full">
+                            <span>Observacao</span>
+                            <InputText @bind-Value="purchaseForm.Notes" />
+                        </label>
+                    </div>
+
+                    <div class="button-row">
+                        <button type="button" class="button button--ghost" @onclick="ApplySuggestedDueDate">Sugerir primeiro vencimento</button>
+                        <button type="submit" class="button button--primary">@(editingPurchaseId == Guid.Empty ? "Adicionar compra" : "Salvar alteracoes")</button>
+
+                        @if (editingPurchaseId != Guid.Empty)
+                        {
+                            <button type="button" class="button button--ghost" @onclick="CancelPurchaseEdit">Cancelar edicao</button>
+                        }
+                    </div>
+                </EditForm>
+            }
+        </article>
+    </section>
+
+    <section class="content-grid">
+        <article class="panel panel--wide">
+            <div class="panel__header">
+                <h2>Compras do cartao selecionado</h2>
+                <span class="pill">@selectedCardPurchases.Count item(ns)</span>
+            </div>
+
+            @if (selectedCardPurchases.Count == 0)
+            {
+                <p class="empty">Nao ha compras registradas para esse cartao no contexto atual.</p>
+            }
+            else
+            {
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Descricao</th>
+                                <th>Responsavel</th>
+                                <th>Valor</th>
+                                <th>Atual</th>
+                                <th>Faltam</th>
+                                <th>Termina</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var item in selectedCardPurchases)
+                            {
+                                <tr>
+                                    <td>
+                                        <strong>@item.Purchase.Description</strong>
+                                        <div class="muted">@item.Category.Name</div>
+                                    </td>
+                                    <td>@item.Responsible.Name</td>
+                                    <td>@Currency(item.InstallmentAmount)</td>
+                                    <td>@item.CurrentInstallmentNumber / @item.Purchase.Installments</td>
+                                    <td>@item.RemainingInstallments</td>
+                                    <td>@item.FinalDueDate.ToString("MM/yyyy")</td>
+                                    <td class="actions">
+                                        <button type="button" class="button button--ghost" @onclick="@(() => StartPurchaseEdit(item))">Editar</button>
+
+                                        @if (pendingDeletePurchaseId == item.Purchase.Id)
+                                        {
+                                            <button type="button" class="button button--danger" @onclick="@(() => ConfirmPurchaseRemove(item.Purchase.Id))">Confirmar exclusao</button>
+                                            <button type="button" class="button button--ghost" @onclick="CancelPurchaseRemove">Cancelar</button>
+                                        }
+                                        else
+                                        {
+                                            <button type="button" class="button button--danger" @onclick="@(() => RequestPurchaseRemove(item.Purchase.Id))">Excluir</button>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </article>
+    </section>
+
+    <section class="content-grid">
+        <article class="panel panel--wide">
+            <div class="panel__header">
+                <h2>Consolidado geral de parcelamentos</h2>
+                <span class="pill">@installments.Count ativo(s)</span>
+            </div>
+
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Compra</th>
+                            <th>Cartao</th>
+                            <th>Responsavel</th>
+                            <th>Valor da parcela</th>
+                            <th>Atual</th>
+                            <th>Faltam</th>
+                            <th>Data final</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in installments)
+                        {
+                            <tr>
+                                <td>@item.Description</td>
+                                <td>@item.CardName</td>
+                                <td>@item.ResponsibleName</td>
+                                <td>@Currency(item.InstallmentAmount)</td>
+                                <td>@item.CurrentInstallmentNumber / @item.TotalInstallments</td>
+                                <td>@item.RemainingInstallments</td>
+                                <td class="@(item.EndsSoon ? "text-warning" : string.Empty)">@item.FinalDueDate.ToString("MM/yyyy")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </article>
+    </section>
+}
+
+@code {
+    private readonly CultureInfo culture = CultureInfo.GetCultureInfo("pt-BR");
+    private IReadOnlyList<Category> expenseCategories = [];
+    private IReadOnlyList<ScopedCardPurchaseItem> purchases = [];
+    private IReadOnlyList<ScopedCardPurchaseItem> selectedCardPurchases = [];
+    private IReadOnlyList<InstallmentOverview> installments = [];
+    private CardDetailSnapshot? cardDetails;
+    private CardBillStatus? currentBillStatus;
+    private CardPurchaseEditInput purchaseForm = new();
+    private CreditCardInput cardForm = new();
+    private Guid selectedCardId;
+    private DateOnly referenceDate;
+    private Guid editingPurchaseId;
+    private Guid pendingDeletePurchaseId;
+
+    protected override void OnInitialized()
+    {
+        Hub.StateChanged += HandleStateChanged;
+        LoadData();
+    }
+
+    private void LoadData()
+    {
+        if (!Hub.HasFamilySetup)
+        {
+            expenseCategories = [];
+            purchases = [];
+            selectedCardPurchases = [];
+            installments = [];
+            cardDetails = null;
+            currentBillStatus = null;
+            selectedCardId = Guid.Empty;
+            cardForm = new CreditCardInput();
+            purchaseForm = new CardPurchaseEditInput();
+            editingPurchaseId = Guid.Empty;
+            pendingDeletePurchaseId = Guid.Empty;
+            return;
+        }
+
+        referenceDate = Hub.GetPlanningReferenceDate(DateOnly.FromDateTime(DateTime.Today));
+        expenseCategories = Hub.Categories.Where(item => item.Kind == CategoryKind.Expense).ToList();
+        purchases = Hub.GetCardPurchases();
+        installments = Hub.GetInstallmentOverview(referenceDate);
+
+        if (cardForm.HolderId == Guid.Empty)
+        {
+            ResetCardForm();
+        }
+
+        if (Hub.Cards.Count == 0)
+        {
+            selectedCardId = Guid.Empty;
+            cardDetails = null;
+            selectedCardPurchases = [];
+            currentBillStatus = null;
+            purchaseForm = new CardPurchaseEditInput();
+            editingPurchaseId = Guid.Empty;
+            pendingDeletePurchaseId = Guid.Empty;
+            return;
+        }
+
+        if (editingPurchaseId != Guid.Empty && purchases.All(item => item.Purchase.Id != editingPurchaseId))
+        {
+            editingPurchaseId = Guid.Empty;
+            pendingDeletePurchaseId = Guid.Empty;
+            ResetPurchaseForm();
+            return;
+        }
+
+        if (selectedCardId == Guid.Empty || Hub.Cards.All(card => card.Id != selectedCardId))
+        {
+            selectedCardId = Hub.Cards.First().Id;
+        }
+
+        if (editingPurchaseId == Guid.Empty && (purchaseForm.CardId == Guid.Empty || purchaseForm.CategoryId == Guid.Empty))
+        {
+            ResetPurchaseForm();
+        }
+
+        RefreshSelectedCard();
+    }
+
+    private void RefreshSelectedCard()
+    {
+        if (selectedCardId == Guid.Empty)
+        {
+            cardDetails = null;
+            currentBillStatus = null;
+            selectedCardPurchases = [];
+            return;
+        }
+
+        cardDetails = Hub.GetCardDetails(selectedCardId, referenceDate);
+        currentBillStatus = Hub.GetCardBillStatus(selectedCardId, referenceDate);
+        selectedCardPurchases = purchases
+            .Where(item => item.Card.Id == selectedCardId)
+            .OrderByDescending(item => item.Purchase.PurchaseDate)
+            .ToList();
+    }
+
+    private void OnSelectedCardChanged(ChangeEventArgs args)
+    {
+        if (Guid.TryParse(args.Value?.ToString(), out var cardId))
+        {
+            var shouldCancelEdit = editingPurchaseId != Guid.Empty && purchaseForm.CardId != cardId;
+            selectedCardId = cardId;
+            pendingDeletePurchaseId = Guid.Empty;
+
+            if (shouldCancelEdit)
+            {
+                CancelPurchaseEdit();
+            }
+            
+            RefreshSelectedCard();
+        }
+    }
+
+    private void HandleCardSubmit()
+    {
+        Hub.AddCreditCard(cardForm);
+        ResetCardForm();
+        LoadData();
+    }
+
+    private void HandlePurchaseSubmit()
+    {
+        if (editingPurchaseId == Guid.Empty)
+        {
+            Hub.AddCardPurchase(new CardPurchaseInput
+            {
+                CardId = purchaseForm.CardId,
+                Description = purchaseForm.Description,
+                TotalAmount = purchaseForm.TotalAmount,
+                Installments = purchaseForm.Installments,
+                PurchaseDate = purchaseForm.PurchaseDate,
+                FirstDueDate = purchaseForm.FirstDueDate,
+                CategoryId = purchaseForm.CategoryId,
+                ResponsibleId = purchaseForm.ResponsibleId,
+                Notes = purchaseForm.Notes,
+                Status = purchaseForm.Status
+            });
+        }
+        else
+        {
+            Hub.UpdateCardPurchase(purchaseForm);
+            editingPurchaseId = Guid.Empty;
+        }
+
+        ResetPurchaseForm();
+        LoadData();
+    }
+
+    private void StartPurchaseEdit(ScopedCardPurchaseItem item)
+    {
+        editingPurchaseId = item.Purchase.Id;
+        pendingDeletePurchaseId = Guid.Empty;
+        purchaseForm = new CardPurchaseEditInput
+        {
+            Id = item.Purchase.Id,
+            CardId = item.Purchase.CardId,
+            Description = item.Purchase.Description,
+            TotalAmount = item.Purchase.TotalAmount,
+            Installments = item.Purchase.Installments,
+            PurchaseDate = item.Purchase.PurchaseDate,
+            FirstDueDate = item.Purchase.FirstDueDate,
+            CategoryId = item.Purchase.CategoryId,
+            ResponsibleId = item.Purchase.ResponsibleId,
+            Notes = item.Purchase.Notes,
+            Status = item.Purchase.Status
+        };
+    }
+
+    private void CancelPurchaseEdit()
+    {
+        editingPurchaseId = Guid.Empty;
+        pendingDeletePurchaseId = Guid.Empty;
+        ResetPurchaseForm();
+    }
+
+    private void RequestPurchaseRemove(Guid purchaseId)
+    {
+        pendingDeletePurchaseId = purchaseId;
+    }
+
+    private void CancelPurchaseRemove()
+    {
+        pendingDeletePurchaseId = Guid.Empty;
+    }
+
+    private void ConfirmPurchaseRemove(Guid purchaseId)
+    {
+        Hub.RemoveCardPurchase(purchaseId);
+
+        if (editingPurchaseId == purchaseId)
+        {
+            editingPurchaseId = Guid.Empty;
+            ResetPurchaseForm();
+        }
+
+        pendingDeletePurchaseId = Guid.Empty;
+        LoadData();
+    }
+
+    private void ToggleCurrentBillPaid()
+    {
+        if (currentBillStatus is null)
+        {
+            return;
+        }
+
+        Hub.SetCardBillPayment(new CardBillPaymentInput
+        {
+            CardId = currentBillStatus.CardId,
+            Month = currentBillStatus.Month,
+            IsPaid = !currentBillStatus.IsPaid
+        });
+        LoadData();
+    }
+
+    private void ApplySuggestedDueDate()
+    {
+        if (purchaseForm.CardId == Guid.Empty)
+        {
+            return;
+        }
+
+        purchaseForm.FirstDueDate = Hub.GetSuggestedFirstDueDate(purchaseForm.CardId, purchaseForm.PurchaseDate);
+    }
+
+    private void ResetCardForm()
+    {
+        cardForm = new CreditCardInput
+        {
+            HolderId = Hub.Members.FirstOrDefault()?.Id ?? Guid.Empty,
+            DueDay = 10
+        };
+    }
+
+    private void ResetPurchaseForm()
+    {
+        if (Hub.Cards.Count == 0 || expenseCategories.Count == 0)
+        {
+            purchaseForm = new CardPurchaseEditInput();
+            return;
+        }
+
+        var defaultCard = Hub.Cards.FirstOrDefault(card => card.Id == selectedCardId) ?? Hub.Cards.First();
+        purchaseForm = new CardPurchaseEditInput
+        {
+            CardId = defaultCard.Id,
+            ResponsibleId = Hub.SelectedMemberId,
+            CategoryId = expenseCategories.First().Id,
+            PurchaseDate = referenceDate,
+            FirstDueDate = Hub.GetSuggestedFirstDueDate(defaultCard.Id, referenceDate),
+            Installments = 1
+        };
+    }
+
+    private string Currency(decimal value) => value.ToString("C2", culture);
+
+    private string GetCurrentBillLabel()
+    {
+        if (currentBillStatus is null || currentBillStatus.Amount == 0m)
+        {
+            return "Sem lancamentos";
+        }
+
+        return currentBillStatus.IsPaid ? "Paga" : "Em aberto";
+    }
+
+    private string GetCurrentBillHelper()
+    {
+        if (currentBillStatus is null || currentBillStatus.Amount == 0m)
+        {
+            return "Nao ha compras nesse fechamento.";
+        }
+
+        return $"{Currency(currentBillStatus.Amount)} | vence {currentBillStatus.DueDate:dd/MM}";
+    }
+
+    private void HandleStateChanged()
+    {
+        LoadData();
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        Hub.StateChanged -= HandleStateChanged;
+    }
+}
+

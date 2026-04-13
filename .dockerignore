@@ -1,0 +1,11 @@
+.git
+.vs
+**/bin
+**/obj
+**/out
+artifacts
+MeuDinDin/App_Data
+*.user
+*.suo
+*.tmp
+*.log

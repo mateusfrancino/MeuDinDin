@@ -1,0 +1,14 @@
+services:
+  meudindin:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: meudindin
+    ports:
+      - "8080:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      MEUDINDIN_DATA_DIR: /app/App_Data
+    volumes:
+      - /srv/meudindin/App_Data:/app/App_Data
+    restart: unless-stopped

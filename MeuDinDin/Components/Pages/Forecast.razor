@@ -1,0 +1,99 @@
+@page "/projecoes"
+@implements IDisposable
+@inject IFinanceHub Hub
+
+<PageTitle>Projecoes</PageTitle>
+
+@if (!Hub.HasFamilySetup)
+{
+    <SetupRequired />
+}
+else
+{
+    <section class="page-header">
+        <div>
+            <p class="eyebrow">Projecao financeira</p>
+            <h1>Leitura mes a mes dos proximos 12 meses.</h1>
+            <p class="section-text">A tabela mostra quanto ja estara comprometido, quanto fica livre e quanto sera liberado quando parcelamentos terminarem.</p>
+        </div>
+    </section>
+
+    <section class="metrics-grid">
+        <MetricCard Label="Media de sobra" Value="@Currency(projection.AverageSurplus)" Helper="Media mensal projetada" Tone="positive" />
+        <MetricCard Label="Pico de gastos" Value="@Currency(projection.PeakCommitment)" Helper="Maior nivel de comprometimento" Tone="warning" />
+        <MetricCard Label="Valor liberado" Value="@Currency(projection.TotalReleased)" Helper="Soma das parcelas que se encerram" Tone="neutral" />
+    </section>
+
+    <section class="content-grid">
+        <article class="panel panel--wide">
+            <div class="panel__header">
+                <h2>Proximos 12 meses</h2>
+                <span class="pill">Forecast</span>
+            </div>
+
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Mes</th>
+                            <th>Renda</th>
+                            <th>Fixas</th>
+                            <th>Avulsas</th>
+                            <th>Cartoes</th>
+                            <th>Total comprometido</th>
+                            <th>Sobra</th>
+                            <th>Liberado</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var month in projection.Months)
+                        {
+                            <tr>
+                                <td>@month.Label</td>
+                                <td>@Currency(month.Income)</td>
+                                <td>@Currency(month.FixedExpenses)</td>
+                                <td>@Currency(month.VariableExpenses)</td>
+                                <td>@Currency(month.CardExpenses)</td>
+                                <td class="@(month.AboveGoal ? "text-danger" : string.Empty)">@Currency(month.TotalExpenses)</td>
+                                <td class="@(month.Surplus < 0 ? "text-danger" : "text-positive")">@Currency(month.Surplus)</td>
+                                <td>@Currency(month.ReleasedAmount)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </article>
+    </section>
+}
+
+@code {
+    private readonly CultureInfo culture = CultureInfo.GetCultureInfo("pt-BR");
+    private ProjectionSnapshot projection = new([], 0m, 0m, 0m);
+
+    protected override void OnInitialized()
+    {
+        Hub.StateChanged += HandleStateChanged;
+        LoadData();
+    }
+
+    private void LoadData()
+    {
+        var referenceDate = Hub.GetPlanningReferenceDate(DateOnly.FromDateTime(DateTime.Today));
+        projection = Hub.HasFamilySetup
+            ? Hub.GetProjection(referenceDate, 12)
+            : new ProjectionSnapshot([], 0m, 0m, 0m);
+    }
+
+    private string Currency(decimal value) => value.ToString("C2", culture);
+
+    private void HandleStateChanged()
+    {
+        LoadData();
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        Hub.StateChanged -= HandleStateChanged;
+    }
+}

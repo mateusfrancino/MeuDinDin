@@ -1,0 +1,59 @@
+@inherits InputBase<decimal>
+
+<input type="text"
+       inputmode="decimal"
+       name="@NameAttributeValue"
+       class="@CssClass"
+       value="@displayValue"
+       @oninput="HandleInput"
+       @onblur="HandleBlur"
+       @attributes="AdditionalAttributes" />
+
+@code {
+    private string displayValue = string.Empty;
+    private bool isEditing;
+
+    protected override void OnParametersSet()
+    {
+        if (!isEditing)
+        {
+            displayValue = MoneyMask.FormatValue(CurrentValue);
+        }
+    }
+
+    protected override bool TryParseValueFromString(string? value, out decimal result, out string validationErrorMessage)
+    {
+        if (MoneyMask.TryParse(value, out result))
+        {
+            validationErrorMessage = null!;
+            return true;
+        }
+
+        validationErrorMessage = "Informe um valor monetario valido.";
+        return false;
+    }
+
+    protected override string? FormatValueAsString(decimal value) => MoneyMask.FormatValue(value);
+
+    private void HandleInput(ChangeEventArgs args)
+    {
+        isEditing = true;
+        displayValue = MoneyMask.FormatTyping(args.Value?.ToString());
+
+        if (MoneyMask.TryParse(displayValue, out var parsed))
+        {
+            CurrentValue = parsed;
+        }
+    }
+
+    private void HandleBlur(FocusEventArgs _)
+    {
+        isEditing = false;
+        displayValue = MoneyMask.FormatCompleted(displayValue);
+
+        if (MoneyMask.TryParse(displayValue, out var parsed))
+        {
+            CurrentValue = parsed;
+        }
+    }
+}

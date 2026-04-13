@@ -1,0 +1,253 @@
+@page "/familia"
+@implements IDisposable
+@inject IFinanceHub Hub
+
+<PageTitle>Familia</PageTitle>
+
+@if (!Hub.HasFamilySetup)
+{
+    <SetupRequired />
+}
+else
+{
+    <section class="page-header">
+        <div>
+            <p class="eyebrow">Configuracao familiar</p>
+            <h1>Edite metas, saldos, membros e categorias.</h1>
+            <p class="section-text">Os dados desta tela sao persistidos no SQLite e passam a ser a base real da aplicacao.</p>
+        </div>
+    </section>
+
+    <section class="metrics-grid">
+        <MetricCard Label="Meta mensal de despesas" Value="@Currency(Hub.Family.MonthlyExpenseGoal)" Helper="Orcamento consolidado da familia" Tone="warning" />
+        <MetricCard Label="Meta de investimento" Value="@Currency(Hub.Family.MonthlyInvestmentGoal)" Helper="Objetivo de aporte mensal" Tone="positive" />
+        <MetricCard Label="Saldo em conta" Value="@Currency(Hub.Family.CheckingBalance)" Helper="Caixa atual informado" Tone="neutral" />
+        <MetricCard Label="Saldo investido" Value="@Currency(Hub.Family.InvestedBalance)" Helper="Patrimonio financeiro atual" Tone="neutral" />
+    </section>
+
+    <section class="content-grid">
+        <article class="panel">
+            <div class="panel__header">
+                <h2>Dados da familia</h2>
+                <span class="pill">Editavel</span>
+            </div>
+
+            <EditForm Model="familyForm" OnValidSubmit="SaveFamily" FormName="family-settings">
+                <DataAnnotationsValidator />
+                <ValidationSummary />
+
+                <div class="form-grid">
+                    <label class="field field--full">
+                        <span>Nome da familia</span>
+                        <InputText @bind-Value="familyForm.Name" />
+                    </label>
+
+                    <label class="field">
+                        <span>Meta de despesas</span>
+                        <MoneyInput @bind-Value="familyForm.MonthlyExpenseGoal" />
+                    </label>
+
+                    <label class="field">
+                        <span>Meta de investimento</span>
+                        <MoneyInput @bind-Value="familyForm.MonthlyInvestmentGoal" />
+                    </label>
+
+                    <label class="field">
+                        <span>Saldo em conta</span>
+                        <MoneyInput @bind-Value="familyForm.CheckingBalance" />
+                    </label>
+
+                    <label class="field">
+                        <span>Saldo investido</span>
+                        <MoneyInput @bind-Value="familyForm.InvestedBalance" />
+                    </label>
+                </div>
+
+                <button type="submit" class="button button--primary">Salvar configuracao</button>
+            </EditForm>
+        </article>
+
+        <article class="panel">
+            <div class="panel__header">
+                <h2>Nova categoria</h2>
+                <span class="pill">Customizavel</span>
+            </div>
+
+            <EditForm Model="categoryForm" OnValidSubmit="SaveCategory" FormName="family-category">
+                <DataAnnotationsValidator />
+                <ValidationSummary />
+
+                <div class="form-grid">
+                    <label class="field field--full">
+                        <span>Nome</span>
+                        <InputText @bind-Value="categoryForm.Name" />
+                    </label>
+
+                    <label class="field">
+                        <span>Tipo</span>
+                        <InputSelect @bind-Value="categoryForm.Kind">
+                            <option value="@CategoryKind.Expense">Despesa</option>
+                            <option value="@CategoryKind.Revenue">Receita</option>
+                        </InputSelect>
+                    </label>
+
+                    <label class="field">
+                        <span>Cor</span>
+                        <InputText @bind-Value="categoryForm.Color" />
+                    </label>
+                </div>
+
+                <button type="submit" class="button button--primary">Adicionar categoria</button>
+            </EditForm>
+        </article>
+    </section>
+
+    <section class="content-grid">
+        <article class="panel panel--wide">
+            <div class="panel__header">
+                <h2>Membros da familia</h2>
+                <span class="pill">@memberForms.Count pessoa(s)</span>
+            </div>
+
+            <div class="member-grid">
+                @foreach (var member in memberForms)
+                {
+                    <EditForm Model="member" OnValidSubmit="@(() => SaveMember(member))" FormName="@($"member-{member.Id}")">
+                        <DataAnnotationsValidator />
+                        <div class="member-card">
+                            <div class="form-grid">
+                                <label class="field">
+                                    <span>Nome</span>
+                                    <InputText @bind-Value="member.Name" />
+                                </label>
+
+                                <label class="field">
+                                    <span>E-mail</span>
+                                    <InputText @bind-Value="member.Email" />
+                                </label>
+
+                                <label class="field">
+                                    <span>Renda mensal</span>
+                                    <MoneyInput @bind-Value="member.MonthlyIncome" />
+                                </label>
+
+                                <label class="field">
+                                    <span>Meta de despesa</span>
+                                    <MoneyInput @bind-Value="member.ExpenseGoal" />
+                                </label>
+
+                                <label class="field">
+                                    <span>Meta de investimento</span>
+                                    <MoneyInput @bind-Value="member.InvestmentGoal" />
+                                </label>
+                            </div>
+
+                            <button type="submit" class="button button--ghost">Salvar membro</button>
+                        </div>
+                    </EditForm>
+                }
+            </div>
+        </article>
+
+        <article class="panel">
+            <div class="panel__header">
+                <h2>Categorias</h2>
+                <span class="pill">@Hub.Categories.Count categoria(s)</span>
+            </div>
+
+            <div class="tag-grid">
+                @foreach (var category in Hub.Categories.OrderBy(item => item.Kind).ThenBy(item => item.Name))
+                {
+                    <div class="tag-item">
+                        <span class="tag-item__dot" style="@($"background:{category.Color}")"></span>
+                        <div>
+                            <strong>@category.Name</strong>
+                            <div class="muted">@(category.Kind == CategoryKind.Revenue ? "Receita" : "Despesa")</div>
+                        </div>
+                    </div>
+                }
+            </div>
+        </article>
+    </section>
+}
+
+@code {
+    private readonly CultureInfo culture = CultureInfo.GetCultureInfo("pt-BR");
+    private FamilySettingsInput familyForm = new();
+    private List<MemberProfileInput> memberForms = [];
+    private CategoryInput categoryForm = new() { Color = "#1C78EB" };
+
+    protected override void OnInitialized()
+    {
+        Hub.StateChanged += HandleStateChanged;
+        LoadData();
+    }
+
+    private void LoadData()
+    {
+        if (!Hub.HasFamilySetup)
+        {
+            familyForm = new();
+            memberForms = [];
+            categoryForm = new CategoryInput { Color = "#1C78EB" };
+            return;
+        }
+
+        familyForm = new FamilySettingsInput
+        {
+            Name = Hub.Family.Name,
+            MonthlyExpenseGoal = Hub.Family.MonthlyExpenseGoal,
+            MonthlyInvestmentGoal = Hub.Family.MonthlyInvestmentGoal,
+            CheckingBalance = Hub.Family.CheckingBalance,
+            InvestedBalance = Hub.Family.InvestedBalance
+        };
+
+        memberForms = Hub.Members
+            .Select(member => new MemberProfileInput
+            {
+                Id = member.Id,
+                Name = member.Name,
+                Email = member.Email,
+                MonthlyIncome = member.MonthlyIncome,
+                ExpenseGoal = member.ExpenseGoal,
+                InvestmentGoal = member.InvestmentGoal
+            })
+            .ToList();
+    }
+
+    private void SaveFamily()
+    {
+        Hub.UpdateFamily(familyForm);
+        LoadData();
+    }
+
+    private void SaveMember(MemberProfileInput member)
+    {
+        Hub.UpdateMember(member);
+        LoadData();
+    }
+
+    private void SaveCategory()
+    {
+        Hub.AddCategory(categoryForm);
+        categoryForm = new CategoryInput
+        {
+            Kind = CategoryKind.Expense,
+            Color = "#1C78EB"
+        };
+        LoadData();
+    }
+
+    private string Currency(decimal value) => value.ToString("C2", culture);
+
+    private void HandleStateChanged()
+    {
+        LoadData();
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        Hub.StateChanged -= HandleStateChanged;
+    }
+}

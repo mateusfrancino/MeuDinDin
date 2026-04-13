@@ -1,0 +1,179 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject IFinanceHub Hub
+
+<div class="@ShellCssClass">
+    <button type="button" class="shell__backdrop" @onclick="CloseMobileSidebar" aria-label="Fechar menu"></button>
+
+    <aside class="shell__sidebar">
+        <div class="sidebar__header">
+            <button type="button" class="sidebar-toggle sidebar-toggle--desktop" @onclick="ToggleSidebarCollapse" aria-label="Expandir ou recolher menu">
+                @(isSidebarCollapsed ? ">" : "<")
+            </button>
+            <button type="button" class="sidebar-toggle sidebar-toggle--mobile" @onclick="CloseMobileSidebar" aria-label="Fechar menu">
+                x
+            </button>
+        </div>
+
+        <a href="/" class="brand" @onclick="CloseMobileSidebar">
+            <img class="brand__logo" src="assets/meudindin-mark.png" alt="Logo MeuDinDin" />
+            <div class="brand__copy">
+                <div class="brand__title">MeuDinDin</div>
+                <div class="brand__subtitle">Financas da familia</div>
+            </div>
+        </a>
+
+        @if (Hub.HasFamilySetup)
+        {
+            <nav class="nav">
+                <NavLink href="/" Match="NavLinkMatch.All" @onclick="CloseMobileSidebar">
+                    <span class="nav__glyph">D</span>
+                    <span class="nav__label">Dashboard</span>
+                </NavLink>
+                <NavLink href="/familia" @onclick="CloseMobileSidebar">
+                    <span class="nav__glyph">F</span>
+                    <span class="nav__label">Familia</span>
+                </NavLink>
+                <NavLink href="/receitas" @onclick="CloseMobileSidebar">
+                    <span class="nav__glyph">R</span>
+                    <span class="nav__label">Receitas</span>
+                </NavLink>
+                <NavLink href="/lancamentos/despesas" @onclick="CloseMobileSidebar">
+                    <span class="nav__glyph">L</span>
+                    <span class="nav__label">Lancar despesa</span>
+                </NavLink>
+                <NavLink href="/despesas-fixas" @onclick="CloseMobileSidebar">
+                    <span class="nav__glyph">X</span>
+                    <span class="nav__label">Despesas fixas</span>
+                </NavLink>
+                <NavLink href="/cartoes" @onclick="CloseMobileSidebar">
+                    <span class="nav__glyph">C</span>
+                    <span class="nav__label">Cartoes</span>
+                </NavLink>
+                <NavLink href="/projecoes" @onclick="CloseMobileSidebar">
+                    <span class="nav__glyph">P</span>
+                    <span class="nav__label">Projecoes</span>
+                </NavLink>
+                <NavLink href="/objetivos" @onclick="CloseMobileSidebar">
+                    <span class="nav__glyph">O</span>
+                    <span class="nav__label">Objetivos</span>
+                </NavLink>
+                <NavLink href="/simulacoes" @onclick="CloseMobileSidebar">
+                    <span class="nav__glyph">S</span>
+                    <span class="nav__label">Simulacoes</span>
+                </NavLink>
+            </nav>
+
+            <div class="sidebar-panel">
+                <div class="sidebar-panel__label">Foco do MVP</div>
+                <p>Comprometimento mensal, parcelas futuras e simulacao de novas compras antes da decisao.</p>
+            </div>
+        }
+        else
+        {
+            <div class="sidebar-panel">
+                <div class="sidebar-panel__label">Primeiro acesso</div>
+                <p>Finalize o onboarding no dashboard para liberar o restante da aplicacao.</p>
+            </div>
+        }
+    </aside>
+
+    <main class="shell__content">
+        <header class="topbar">
+            <div class="topbar__meta">
+                <button type="button" class="topbar__menu" @onclick="OpenMobileSidebar" aria-label="Abrir menu">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </button>
+
+                <div>
+                    <div class="topbar__eyebrow">Contexto ativo</div>
+                    <div class="topbar__title">@CurrentTitle</div>
+                </div>
+            </div>
+
+            @if (Hub.HasFamilySetup)
+            {
+                <div class="topbar__controls">
+                    <label class="field">
+                        <span>Visao</span>
+                        <select value="@Hub.ViewMode" @onchange="OnViewModeChanged">
+                            <option value="@FamilyViewMode.Family">Familiar</option>
+                            <option value="@FamilyViewMode.Individual">Individual</option>
+                        </select>
+                    </label>
+
+                    <label class="field">
+                        <span>Responsavel</span>
+                        <select value="@Hub.SelectedMemberId" @onchange="OnSelectedMemberChanged">
+                            @foreach (var member in Hub.Members)
+                            {
+                                <option value="@member.Id">@member.Name</option>
+                            }
+                        </select>
+                    </label>
+                </div>
+            }
+        </header>
+
+        <section class="page-shell">
+            @Body
+        </section>
+    </main>
+</div>
+
+<div id="blazor-error-ui" data-nosnippet>
+    An unhandled error has occurred.
+    <a href="." class="reload">Reload</a>
+    <span class="dismiss">x</span>
+</div>
+
+@code {
+    private bool isSidebarCollapsed;
+    private bool isMobileSidebarOpen;
+
+    private string ShellCssClass =>
+        $"shell{(isSidebarCollapsed ? " shell--collapsed" : string.Empty)}{(isMobileSidebarOpen ? " shell--mobile-open" : string.Empty)}";
+
+    private string CurrentTitle =>
+        !Hub.HasFamilySetup
+            ? "Onboarding inicial da familia"
+            : Hub.ViewMode == FamilyViewMode.Family
+            ? "Visao consolidada da familia"
+            : $"Visao individual de {Hub.Members.First(member => member.Id == Hub.SelectedMemberId).Name}";
+
+    protected override void OnInitialized()
+    {
+        Hub.StateChanged += HandleStateChanged;
+    }
+
+    private void OnViewModeChanged(ChangeEventArgs args)
+    {
+        if (Enum.TryParse<FamilyViewMode>(args.Value?.ToString(), out var mode))
+        {
+            Hub.SetViewMode(mode);
+        }
+    }
+
+    private void OnSelectedMemberChanged(ChangeEventArgs args)
+    {
+        if (Guid.TryParse(args.Value?.ToString(), out var memberId))
+        {
+            Hub.SetSelectedMember(memberId);
+        }
+    }
+
+    private void ToggleSidebarCollapse() => isSidebarCollapsed = !isSidebarCollapsed;
+
+    private void OpenMobileSidebar() => isMobileSidebarOpen = true;
+
+    private void CloseMobileSidebar() => isMobileSidebarOpen = false;
+
+    private void HandleStateChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        Hub.StateChanged -= HandleStateChanged;
+    }
+}
