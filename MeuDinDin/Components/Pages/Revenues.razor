@@ -22,8 +22,8 @@ else
     <section class="content-grid">
         <article class="panel">
             <div class="panel__header">
-                <h2>Nova receita</h2>
-                <span class="pill">SQLite</span>
+                <h2>@(editingIncomeId == Guid.Empty ? "Nova receita" : "Editar receita")</h2>
+                <span class="pill">@(editingIncomeId == Guid.Empty ? "Cadastro" : "Alteracao")</span>
             </div>
 
             <EditForm Model="form" OnValidSubmit="HandleSubmit" FormName="income-create">
@@ -80,7 +80,14 @@ else
                     <span>Marcar como receita extra</span>
                 </label>
 
-                <button type="submit" class="button button--primary">Adicionar receita</button>
+                <div class="button-row">
+                    <button type="submit" class="button button--primary">@(editingIncomeId == Guid.Empty ? "Adicionar receita" : "Salvar alteracoes")</button>
+
+                    @if (editingIncomeId != Guid.Empty)
+                    {
+                        <button type="button" class="button button--ghost" @onclick="CancelEdit">Cancelar edicao</button>
+                    }
+                </div>
             </EditForm>
         </article>
 
@@ -100,6 +107,7 @@ else
                             <th>Data</th>
                             <th>Recorrencia</th>
                             <th>Valor</th>
+                            <th></th>
                         </tr>
                     </thead>
                     <tbody>
@@ -115,6 +123,19 @@ else
                                 <td>@item.Entry.Date.ToString("dd/MM/yyyy")</td>
                                 <td>@(item.Entry.Recurrence == RecurrenceType.Monthly ? "Mensal" : "Avulsa")</td>
                                 <td>@Currency(item.Entry.Amount)</td>
+                                <td class="actions">
+                                    <button type="button" class="button button--ghost" @onclick="@(() => StartEdit(item))">Editar</button>
+
+                                    @if (pendingDeleteIncomeId == item.Entry.Id)
+                                    {
+                                        <button type="button" class="button button--danger" @onclick="@(() => ConfirmRemove(item.Entry.Id))">Confirmar exclusao</button>
+                                        <button type="button" class="button button--ghost" @onclick="CancelRemove">Cancelar</button>
+                                    }
+                                    else
+                                    {
+                                        <button type="button" class="button button--danger" @onclick="@(() => RequestRemove(item.Entry.Id))">Excluir</button>
+                                    }
+                                </td>
                             </tr>
                         }
                     </tbody>
@@ -128,7 +149,9 @@ else
     private readonly CultureInfo culture = CultureInfo.GetCultureInfo("pt-BR");
     private IReadOnlyList<ScopedIncomeItem> items = [];
     private IReadOnlyList<Category> revenueCategories = [];
-    private IncomeEntryInput form = new();
+    private IncomeEntryEditInput form = new();
+    private Guid editingIncomeId;
+    private Guid pendingDeleteIncomeId;
 
     protected override void OnInitialized()
     {
@@ -142,14 +165,24 @@ else
         {
             revenueCategories = [];
             items = [];
-            form = new IncomeEntryInput();
+            form = new IncomeEntryEditInput();
+            editingIncomeId = Guid.Empty;
+            pendingDeleteIncomeId = Guid.Empty;
             return;
         }
 
         revenueCategories = Hub.Categories.Where(item => item.Kind == CategoryKind.Revenue).ToList();
         items = Hub.GetIncomeEntries();
 
-        if (form.ResponsibleId == Guid.Empty || form.CategoryId == Guid.Empty)
+        if (editingIncomeId != Guid.Empty && items.All(item => item.Entry.Id != editingIncomeId))
+        {
+            editingIncomeId = Guid.Empty;
+            pendingDeleteIncomeId = Guid.Empty;
+            ResetForm();
+            return;
+        }
+
+        if (editingIncomeId == Guid.Empty && (form.ResponsibleId == Guid.Empty || form.CategoryId == Guid.Empty))
         {
             ResetForm();
         }
@@ -157,8 +190,76 @@ else
 
     private void HandleSubmit()
     {
-        Hub.AddIncome(form);
+        if (editingIncomeId == Guid.Empty)
+        {
+            Hub.AddIncome(new IncomeEntryInput
+            {
+                Description = form.Description,
+                Amount = form.Amount,
+                Date = form.Date,
+                Recurrence = form.Recurrence,
+                Status = form.Status,
+                ResponsibleId = form.ResponsibleId,
+                CategoryId = form.CategoryId,
+                IsExtra = form.IsExtra
+            });
+        }
+        else
+        {
+            Hub.UpdateIncome(form);
+            editingIncomeId = Guid.Empty;
+        }
+
         ResetForm();
+        LoadData();
+    }
+
+    private void StartEdit(ScopedIncomeItem item)
+    {
+        editingIncomeId = item.Entry.Id;
+        pendingDeleteIncomeId = Guid.Empty;
+        form = new IncomeEntryEditInput
+        {
+            Id = item.Entry.Id,
+            Description = item.Entry.Description,
+            Amount = item.Entry.Amount,
+            Date = item.Entry.Date,
+            Recurrence = item.Entry.Recurrence,
+            Status = item.Entry.Status,
+            ResponsibleId = item.Entry.ResponsibleId,
+            CategoryId = item.Entry.CategoryId,
+            IsExtra = item.Entry.IsExtra
+        };
+    }
+
+    private void CancelEdit()
+    {
+        editingIncomeId = Guid.Empty;
+        pendingDeleteIncomeId = Guid.Empty;
+        ResetForm();
+    }
+
+    private void RequestRemove(Guid incomeId)
+    {
+        pendingDeleteIncomeId = incomeId;
+    }
+
+    private void CancelRemove()
+    {
+        pendingDeleteIncomeId = Guid.Empty;
+    }
+
+    private void ConfirmRemove(Guid incomeId)
+    {
+        Hub.RemoveIncome(incomeId);
+
+        if (editingIncomeId == incomeId)
+        {
+            editingIncomeId = Guid.Empty;
+            ResetForm();
+        }
+
+        pendingDeleteIncomeId = Guid.Empty;
         LoadData();
     }
 
@@ -166,12 +267,12 @@ else
     {
         if (revenueCategories.Count == 0)
         {
-            form = new IncomeEntryInput();
+            form = new IncomeEntryEditInput();
             return;
         }
 
         var referenceDate = Hub.GetPlanningReferenceDate(DateOnly.FromDateTime(DateTime.Today));
-        form = new IncomeEntryInput
+        form = new IncomeEntryEditInput
         {
             ResponsibleId = Hub.SelectedMemberId,
             CategoryId = revenueCategories.First().Id,

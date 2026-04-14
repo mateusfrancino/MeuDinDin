@@ -494,6 +494,32 @@ public sealed class IncomeEntryInput
     public bool IsExtra { get; set; }
 }
 
+public sealed class IncomeEntryEditInput
+{
+    [Required]
+    public Guid Id { get; set; }
+
+    [Required]
+    public string Description { get; set; } = string.Empty;
+
+    [Range(typeof(decimal), "0.01", "999999999", ParseLimitsInInvariantCulture = true, ConvertValueInInvariantCulture = true)]
+    public decimal Amount { get; set; }
+
+    public DateOnly Date { get; set; } = DateOnly.FromDateTime(DateTime.Today);
+
+    public RecurrenceType Recurrence { get; set; } = RecurrenceType.Monthly;
+
+    public EntryStatus Status { get; set; } = EntryStatus.Planned;
+
+    [Required]
+    public Guid ResponsibleId { get; set; }
+
+    [Required]
+    public Guid CategoryId { get; set; }
+
+    public bool IsExtra { get; set; }
+}
+
 public sealed class FixedExpenseInput
 {
     [Required]
@@ -810,6 +836,10 @@ public interface IFinanceHub
     DateOnly GetSuggestedFirstDueDate(Guid cardId, DateOnly purchaseDate);
 
     void AddIncome(IncomeEntryInput input);
+
+    void UpdateIncome(IncomeEntryEditInput input);
+
+    void RemoveIncome(Guid incomeId);
 
     void AddFixedExpense(FixedExpenseInput input);
 

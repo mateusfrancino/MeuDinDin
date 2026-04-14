@@ -540,7 +540,9 @@ public sealed partial class FinanceHub : IFinanceHub
 
     public void AddIncome(IncomeEntryInput input)
     {
-        if (!HasFamilySetup)
+        if (!HasFamilySetup ||
+            members.All(member => member.Id != input.ResponsibleId) ||
+            categories.All(category => category.Id != input.CategoryId || category.Kind != CategoryKind.Revenue))
         {
             return;
         }
@@ -559,6 +561,57 @@ public sealed partial class FinanceHub : IFinanceHub
             CategoryId = input.CategoryId,
             IsExtra = input.IsExtra
         });
+        db.SaveChanges();
+
+        ReloadState();
+        NotifyStateChanged();
+    }
+
+    public void UpdateIncome(IncomeEntryEditInput input)
+    {
+        if (!HasFamilySetup ||
+            members.All(member => member.Id != input.ResponsibleId) ||
+            categories.All(category => category.Id != input.CategoryId || category.Kind != CategoryKind.Revenue))
+        {
+            return;
+        }
+
+        using var db = dbContextFactory.CreateDbContext();
+        var entity = db.IncomeEntries.FirstOrDefault(item => item.Id == input.Id && item.FamilyGroupId == family.Id);
+        if (entity is null)
+        {
+            return;
+        }
+
+        entity.Description = input.Description.Trim();
+        entity.AmountCents = ToCents(input.Amount);
+        entity.Date = input.Date;
+        entity.Recurrence = input.Recurrence;
+        entity.Status = input.Status;
+        entity.ResponsibleId = input.ResponsibleId;
+        entity.CategoryId = input.CategoryId;
+        entity.IsExtra = input.IsExtra;
+        db.SaveChanges();
+
+        ReloadState();
+        NotifyStateChanged();
+    }
+
+    public void RemoveIncome(Guid incomeId)
+    {
+        if (!HasFamilySetup)
+        {
+            return;
+        }
+
+        using var db = dbContextFactory.CreateDbContext();
+        var entity = db.IncomeEntries.FirstOrDefault(item => item.Id == incomeId && item.FamilyGroupId == family.Id);
+        if (entity is null)
+        {
+            return;
+        }
+
+        db.IncomeEntries.Remove(entity);
         db.SaveChanges();
 
         ReloadState();

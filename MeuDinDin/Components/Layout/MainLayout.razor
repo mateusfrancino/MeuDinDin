@@ -3,10 +3,19 @@
 @implements IDisposable
 @inject IFinanceHub Hub
 @inject NavigationManager Navigation
+@inject IJSRuntime JS
 
 @if (IsAuthRoute)
 {
     <main class="auth-page">
+        <button type="button"
+                class="theme-toggle theme-toggle--floating"
+                @onclick="ToggleThemeAsync"
+                aria-label="@ThemeToggleLabel"
+                title="@ThemeToggleLabel">
+            @ThemeToggleIcon
+        </button>
+
         <section class="page-shell">
             @Body
         </section>
@@ -93,7 +102,7 @@ else
             {
                 <div class="sidebar-panel">
                     <div class="sidebar-panel__label">Acesso</div>
-                    <p>Entre com seu login ou crie uma conta para iniciar o piloto com suas familias.</p>
+                    <p>Entre com seu login ou crie uma conta para organizar as financas da sua familia.</p>
                     <div class="auth-inline-links">
                         <a class="button button--primary" href="/entrar">Entrar</a>
                         <a class="button button--ghost" href="/cadastro">Criar conta</a>
@@ -120,6 +129,14 @@ else
                 @if (isAuthenticated && Hub.HasFamilySetup)
                 {
                     <div class="topbar__controls">
+                        <button type="button"
+                                class="theme-toggle"
+                                @onclick="ToggleThemeAsync"
+                                aria-label="@ThemeToggleLabel"
+                                title="@ThemeToggleLabel">
+                            @ThemeToggleIcon
+                        </button>
+
                         <label class="field">
                             <span>Visao</span>
                             <select value="@Hub.ViewMode" @onchange="OnViewModeChanged">
@@ -152,6 +169,14 @@ else
                 else if (isAuthenticated)
                 {
                     <div class="topbar__controls">
+                        <button type="button"
+                                class="theme-toggle"
+                                @onclick="ToggleThemeAsync"
+                                aria-label="@ThemeToggleLabel"
+                                title="@ThemeToggleLabel">
+                            @ThemeToggleIcon
+                        </button>
+
                         <div class="user-chip">
                             <strong>@UserDisplayName</strong>
                             <span>@UserEmail</span>
@@ -166,6 +191,14 @@ else
                 else
                 {
                     <div class="topbar__controls">
+                        <button type="button"
+                                class="theme-toggle"
+                                @onclick="ToggleThemeAsync"
+                                aria-label="@ThemeToggleLabel"
+                                title="@ThemeToggleLabel">
+                            @ThemeToggleIcon
+                        </button>
+
                         <a class="button button--ghost" href="/entrar">Entrar</a>
                         <a class="button button--primary" href="/cadastro">Criar conta</a>
                     </div>
@@ -194,6 +227,7 @@ else
     private bool isAuthenticated;
     private string userDisplayName = string.Empty;
     private string userEmail = string.Empty;
+    private string currentTheme = "light";
 
     private bool IsAuthRoute
     {
@@ -231,6 +265,10 @@ else
 
     private string UserEmail => userEmail;
 
+    private string ThemeToggleIcon => currentTheme == "dark" ? "☀️" : "🌙";
+
+    private string ThemeToggleLabel => currentTheme == "dark" ? "Ativar modo claro" : "Ativar modo escuro";
+
     protected override void OnInitialized()
     {
         Hub.StateChanged += HandleStateChanged;
@@ -257,6 +295,17 @@ else
         }
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        currentTheme = await JS.InvokeAsync<string>("meuDinDinTheme.getPreferredTheme");
+        await InvokeAsync(StateHasChanged);
+    }
+
     private void OnViewModeChanged(ChangeEventArgs args)
     {
         if (Enum.TryParse<FamilyViewMode>(args.Value?.ToString(), out var mode))
@@ -278,6 +327,11 @@ else
     private void OpenMobileSidebar() => isMobileSidebarOpen = true;
 
     private void CloseMobileSidebar() => isMobileSidebarOpen = false;
+
+    private async Task ToggleThemeAsync()
+    {
+        currentTheme = await JS.InvokeAsync<string>("meuDinDinTheme.toggleTheme");
+    }
 
     private void HandleStateChanged() => InvokeAsync(StateHasChanged);
 
